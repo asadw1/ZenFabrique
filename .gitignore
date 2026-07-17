@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/target/
+# Cargo.lock is intentionally NOT ignored: this is an application (orchestrator), not a library,
+# and applications should commit their lockfile for reproducible builds.
+
+# Node / UI
+node_modules/
+dist/
+build/
+.npm
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+
+# Local data artifacts
+*.duckdb
+*.db
+
+# Local mock event drop directory — keep the folder tracked, ignore anything dropped into it
+events/input/*
+!events/input/.gitkeep
+
+# GitHub metadata (local-only, not tracked)
+.github/
