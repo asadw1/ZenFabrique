@@ -17,25 +17,27 @@ Records the Core (MVP vertical slice) vs. Extended (long-term vision) stack spli
 
 **Decision:** Jena/Fuseki is the locked choice for the Control Plane, not Stardog — see below. All other Core Stack choices in the table above are final for the vertical slice; no further "either/or" ambiguity remains within Phases 1-3.
 
-## Extended Stack (Long-Term Vision — Phases 4-6, deferred)
+## Extended Stack (Long-Term Vision — Phases 4-7, deferred)
 
-| Component | Technology | License | FOSS? | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| Transport | RabbitMQ | Mozilla Public License 2.0 | Yes | Replaces file-watch ingestion once Core loop is proven. |
-| Query federation | Trino | Apache 2.0 | Yes | |
-| Orchestration/lineage | Dagster (OSS core) | Apache 2.0 | Yes | Avoid Dagster+ (managed/commercial) — OSS core only. |
-| Storage format | Apache Parquet / Delta Lake | Apache 2.0 | Yes | |
-| Policy engine | Open Policy Agent (OPA) + Rego | Apache 2.0 | Yes | |
-| Privacy (FHE) | OpenFHE | BSD 2-Clause | Yes | Default choice — see decision below. |
-| Privacy (FHE), alternative | Concrete (Zama) | BSD-3-Clause-Clear | **Needs verification** | Not an OSI-approved license (excludes patent grant); source-available but ambiguous under a strict FOSS reading. Do not adopt without re-confirming against the FOSS constraint at Phase 4 kickoff. |
-| Control Room UI framework | Svelte | MIT | Yes | Locked in. |
-| Graph visualization | Cytoscape.js | MIT | Yes | |
-| Telemetry transport | WebSockets | Protocol (no license) | N/A | |
+Per-component phase assignment, see [ROADMAP.md](../planning/ROADMAP.md) for what each phase actually delivers:
+
+| Component | Technology | License | FOSS? | Phase | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Transport | RabbitMQ | Mozilla Public License 2.0 | Yes | 4 | Replaces file-watch ingestion now that the Core loop is proven. |
+| Policy engine | Open Policy Agent (OPA) + Rego | Apache 2.0 | Yes | 5 | |
+| Privacy (FHE) | OpenFHE | BSD 2-Clause | Yes | 5 | Default choice — see decision below. |
+| Privacy (FHE), alternative | Concrete (Zama) | BSD-3-Clause-Clear | **Needs verification** | 5 | Not an OSI-approved license (excludes patent grant); source-available but ambiguous under a strict FOSS reading. Do not adopt without re-confirming against the FOSS constraint at Phase 5 kickoff. |
+| Control Room UI framework | Svelte | MIT | Yes | 6 | Locked in. |
+| Graph visualization | Cytoscape.js | MIT | Yes | 6 | |
+| Telemetry transport | WebSockets | Protocol (no license) | N/A | 6 | |
+| Query federation | Trino | Apache 2.0 | Yes | 7 | |
+| Orchestration/lineage | Dagster (OSS core) | Apache 2.0 | Yes | 7 | Avoid Dagster+ (managed/commercial) — OSS core only. |
+| Storage format | Apache Parquet / Delta Lake | Apache 2.0 | Yes | 7 | |
 
 ## Rejected / Flagged Options
 
 - **Stardog** (listed in the original README as a Jena alternative) is **commercial, closed-source software** — it does not satisfy the FOSS constraint. **Decision: dropped.** Jena/Fuseki is the sole Control Plane store, for both the Core and Extended stacks.
-- **Concrete (Zama)** — flagged above, not rejected outright. If FHE work in Phase 4 needs Concrete's specific feature set, re-verify its license against the project's FOSS bar before adopting; otherwise default to OpenFHE.
+- **Concrete (Zama)** — flagged above, not rejected outright. If FHE work in Phase 5 needs Concrete's specific feature set, re-verify its license against the project's FOSS bar before adopting; otherwise default to OpenFHE.
 
 ## Design principle: decoupling for hot-swap
 

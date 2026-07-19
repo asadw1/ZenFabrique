@@ -24,13 +24,32 @@ Last updated: 2026-07-19
 - [x] Automate break-and-repair cycle end-to-end on a seeded bad event
 - [x] **Vertical slice demo:** drop a malformed JSON event into `events/input/`, observe automatic shim repair, confirm DuckDB view reflects healed data
 
-## Deferred (Extended Architecture — not started, tracked here for visibility only)
-- [ ] RabbitMQ transport (replaces file-watch ingestion)
-- [ ] OPA/Rego policy plane
-- [ ] FHE/SMPC privacy layer
-- [ ] Trino federation
-- [ ] Dagster orchestration
-- [ ] Control Room UI (Svelte + Cytoscape.js + WebSockets)
+## Phase 4 — Transport (RabbitMQ) — not started
+- [ ] Stand up RabbitMQ (Docker)
+- [ ] Implement a RabbitMQ consumer behind the existing ingestion channel interface (swap-in for the file watcher; no changes to validation/shim logic downstream)
+- [ ] Update `config/fabric.yaml` with broker connection details
+- [ ] Verify the self-healing loop works end-to-end against the new transport
+- [ ] Decide the fate of file-watch ingestion (retire vs. keep as a dev-mode fallback)
+
+## Phase 5 — Security & Privacy (OPA & FHE) — not started
+- [ ] Define basic OPA policies in Rego (e.g., service access control)
+- [ ] Deploy OPA (Docker) and wire policy evaluation into the orchestrator
+- [ ] Implement FHE library (OpenFHE, pending Concrete license re-verification if ever needed) for encrypted aggregation on user IDs
+- [ ] **Demo:** a policy-gated schema mutation is correctly rejected/allowed; an encrypted aggregate query produces the correct result without decrypting raw PII
+
+## Phase 6 — Control Room UI — not started
+- [ ] Scaffold the Svelte dashboard
+- [ ] Integrate Cytoscape.js for real-time Knowledge Graph / shim-node visualization
+- [ ] Establish a WebSocket telemetry connection from the Rust orchestrator
+- [ ] **Demo:** dropping a malformed event visibly triggers a shim node + repair indicator in the UI
+
+## Phase 7 — Federation, Orchestration & Hardening — not started
+- [ ] Add Trino for cross-source query federation
+- [ ] Add Dagster (OSS core) for asset-aware orchestration/lineage
+- [ ] Migrate storage to Parquet/Delta Lake where applicable
+- [ ] Stress test under high-velocity schema mutation
+- [ ] Optimize DuckDB shim latency / address the single-staging-graph, sequential-processing bottleneck flagged during Phase 3 hardening
+- [ ] Finalize documentation and project cleanup
 
 ## How to update this file
 Check a box when the task is done and demonstrably working (not just code written — run it). Add a dated one-line note below if a task's scope changes.
@@ -55,3 +74,4 @@ Check a box when the task is done and demonstrably working (not just code writte
   - **Latency.** Added `duration_ms` to `validate::process`'s per-event log lines (both the "conforms" and "does not conform" branches) rather than a one-off benchmark — this is a number worth watching continuously, not measuring once. First real observation: **~162ms** for a conforming event end-to-end, dominated by the two sequential HTTP round-trips to Fuseki (PUT the event graph, then POST to `/shacl`). Throughput is still unmeasured and the single-staging-graph/sequential-processing design remains a known serialization bottleneck — not fixed, just now visible in the logs instead of invisible.
   - All 21 tests pass (18 unit + 3 live-Fuseki, up from 16+2).
 - 2026-07-19: Verified the Core MVP actually works from a truly fresh clone, not just "fresh enough" — `docker compose down -v` (wipes the Fuseki volume entirely) then `docker compose up -d jena` with **no manual ontology/shapes loading**, then ran the orchestrator straight against that untouched instance. Both a conforming and a self-healing event processed correctly. This means the Phase 1 `curl` steps for loading `streaming-event.ttl`/`streaming-event-shape.ttl` into Fuseki were only ever needed for *our own* manual SPARQL browsing during Phase 1 — the orchestrator never depended on them, since `shacl.rs` ships its own copy of the shapes file and POSTs it fresh on every call, and the assembler config creates the dataset + endpoints automatically. Fixed [README.md](../../README.md)'s Getting Started section accordingly: step 1 no longer implies manual loading is required, and step 3's `cargo run` command is corrected (it previously omitted `--manifest-path`, so as written it only worked if you happened to already be `cd`'d into `orchestrator/` — now given as a repo-root command that actually runs). Also fixed a stale reference claiming file-watch ingestion lasts "until Phase 2 is complete" (Phase 2 finished weeks ago; RabbitMQ replacing it is Phase 4, per ROADMAP.md).
+- 2026-07-19: **Core MVP (Phases 1-3) declared done.** Restructured the flat, undifferentiated "Deferred" list into dedicated Phase 4-7 sections, mirroring the granularity Phases 1-3 already had. This closed a real gap in the existing docs: ROADMAP.md's Phase 4-6 table only ever specified tasks for Security (OPA+FHE), Control Room UI, and Hardening — RabbitMQ, Trino, and Dagster had no assigned phase number at all (ARCHITECTURE_DECISIONS.md just lumped them into "Phases 4-6" collectively). Resolved by renumbering: **Phase 4 = Transport (RabbitMQ)** — narratively the first thing to tackle now that the loop is proven, per the Phase 2 note that's existed since the beginning — **Phase 5 = Security & Privacy (OPA+FHE)**, **Phase 6 = Control Room UI**, **Phase 7 = Federation, Orchestration & Hardening (Trino, Dagster, Parquet/Delta Lake, stress testing, the latency work flagged in Phase 3)**. Updated ROADMAP.md's phase table/detailed sections and ARCHITECTURE_DECISIONS.md's Extended Stack table (now tagged with a Phase column per component) to match.
