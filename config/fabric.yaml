@@ -1,0 +1,14 @@
+ingestion:
+  watch_dir: events/input
+
+control_plane:
+  fuseki_url: http://localhost:3030/zenfabrique
+  shapes_path: control-plane/shacl/streaming-event-shape.ttl
+  username: admin
+  password: admin
+
+data_plane:
+  duckdb_path: data-plane/zenfabrique.duckdb
+
+logging:
+  level: info

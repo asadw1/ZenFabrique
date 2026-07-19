@@ -1,0 +1,68 @@
+@prefix zf:   <http://zenfabrique.io/ontology#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<http://zenfabrique.io/ontology> a owl:Ontology ;
+    rdfs:comment "Core StreamingEvent ontology for the ZenFabrique vertical slice (Phase 1)." .
+
+#################################################################
+# Classes
+#################################################################
+
+zf:StreamingEvent a owl:Class ;
+    rdfs:label "Streaming Event" ;
+    rdfs:comment "A single playback event, e.g. a 'Song Played' event emitted by the Producer service." .
+
+zf:User a owl:Class ;
+    rdfs:label "User" ;
+    rdfs:comment "The listener who triggered a StreamingEvent." .
+
+zf:Track a owl:Class ;
+    rdfs:label "Track" ;
+    rdfs:comment "The song/track played in a StreamingEvent." .
+
+#################################################################
+# Object properties
+#################################################################
+
+zf:performedBy a owl:ObjectProperty, owl:FunctionalProperty ;
+    rdfs:label "performed by" ;
+    rdfs:domain zf:StreamingEvent ;
+    rdfs:range zf:User .
+
+zf:involvesTrack a owl:ObjectProperty, owl:FunctionalProperty ;
+    rdfs:label "involves track" ;
+    rdfs:domain zf:StreamingEvent ;
+    rdfs:range zf:Track .
+
+#################################################################
+# Datatype properties
+#################################################################
+
+zf:eventId a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:label "event id" ;
+    rdfs:domain zf:StreamingEvent ;
+    rdfs:range xsd:string .
+
+zf:eventTimestamp a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:label "event timestamp" ;
+    rdfs:domain zf:StreamingEvent ;
+    rdfs:range xsd:dateTime .
+
+zf:msPlayed a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:label "milliseconds played" ;
+    rdfs:comment "How long the user listened before the event was emitted, in milliseconds." ;
+    rdfs:domain zf:StreamingEvent ;
+    rdfs:range xsd:nonNegativeInteger .
+
+zf:userId a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:label "user id" ;
+    rdfs:domain zf:User ;
+    rdfs:range xsd:string .
+
+zf:trackId a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:label "track id" ;
+    rdfs:domain zf:Track ;
+    rdfs:range xsd:string .

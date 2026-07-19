@@ -1,0 +1,61 @@
+@prefix zf:   <http://zenfabrique.io/ontology#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+zf:StreamingEventShape
+    a sh:NodeShape ;
+    sh:targetClass zf:StreamingEvent ;
+    sh:property [
+        sh:path zf:eventId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minLength 1 ;
+    ] ;
+    sh:property [
+        sh:path zf:eventTimestamp ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path zf:msPlayed ;
+        sh:datatype xsd:nonNegativeInteger ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path zf:performedBy ;
+        sh:class zf:User ;
+        sh:node zf:UserShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path zf:involvesTrack ;
+        sh:class zf:Track ;
+        sh:node zf:TrackShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+zf:UserShape
+    a sh:NodeShape ;
+    sh:targetClass zf:User ;
+    sh:property [
+        sh:path zf:userId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minLength 1 ;
+    ] .
+
+zf:TrackShape
+    a sh:NodeShape ;
+    sh:targetClass zf:Track ;
+    sh:property [
+        sh:path zf:trackId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minLength 1 ;
+    ] .

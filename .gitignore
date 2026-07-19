@@ -29,6 +29,7 @@ Thumbs.db
 
 # Local data artifacts
 *.duckdb
+*.duckdb.wal
 *.db
 
 # Local mock event drop directory — keep the folder tracked, ignore anything dropped into it

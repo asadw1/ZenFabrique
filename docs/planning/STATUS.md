@@ -7,22 +7,22 @@ Tracks progress on the **Thin Vertical Slice** (Two-Track strategy: prove the co
 Last updated: 2026-07-17
 
 ## Phase 1 — Foundation (Ontology)
-- [ ] Design core `StreamingEvent` class (User, Track, Timestamp) in OWL/Turtle
-- [ ] Stand up Apache Jena/Fuseki instance (local, Docker)
-- [ ] Draft initial SHACL shapes defining the event "Contract"
+- [x] Design core `StreamingEvent` class (User, Track, Timestamp) in OWL/Turtle
+- [x] Stand up Apache Jena/Fuseki instance (local, Docker)
+- [x] Draft initial SHACL shapes defining the event "Contract"
 
 ## Phase 2 — Orchestration (Rust Core, mock ingestion)
-- [ ] Scaffold Rust service (`orchestrator/`)
-- [ ] Implement mock ingestion: watch local `events/input/` directory for JSON files
-- [ ] Wire event loop: file detected -> read -> forward for validation
-- [ ] Implement structured logging
+- [x] Scaffold Rust service (`orchestrator/`)
+- [x] Implement mock ingestion: watch local `events/input/` directory for JSON files
+- [x] Wire event loop: file detected -> read -> forward for validation
+- [x] Implement structured logging
 
 ## Phase 3 — Self-Healing (Shim Repair)
-- [ ] Implement SHACL validator call from Rust orchestrator to Fuseki
-- [ ] Detect schema breach ("Observe -> Reason" complete)
-- [ ] Build Shim generator: emit DuckDB SQL view reconciling drifted event to expected shape
-- [ ] Automate break-and-repair cycle end-to-end on a seeded bad event
-- [ ] **Vertical slice demo:** drop a malformed JSON event into `events/input/`, observe automatic shim repair, confirm DuckDB view reflects healed data
+- [x] Implement SHACL validator call from Rust orchestrator to Fuseki
+- [x] Detect schema breach ("Observe -> Reason" complete)
+- [x] Build Shim generator: emit DuckDB SQL view reconciling drifted event to expected shape
+- [x] Automate break-and-repair cycle end-to-end on a seeded bad event
+- [x] **Vertical slice demo:** drop a malformed JSON event into `events/input/`, observe automatic shim repair, confirm DuckDB view reflects healed data
 
 ## Deferred (Extended Architecture — not started, tracked here for visibility only)
 - [ ] RabbitMQ transport (replaces file-watch ingestion)
@@ -34,3 +34,17 @@ Last updated: 2026-07-17
 
 ## How to update this file
 Check a box when the task is done and demonstrably working (not just code written — run it). Add a dated one-line note below if a task's scope changes.
+
+## Notes
+- 2026-07-17: Jena/Fuseki stood up via root `docker-compose.yml` (`stain/jena-fuseki:5.1.0`, community image — no official Apache-published image exists). Auto-creates TDB2 dataset `zenfabrique` on boot; `control-plane/ontology/` mounted read-only at `/staging/ontology` for loading `.ttl` files once they exist. Verified reachable at `http://localhost:3030` (`/$/ping` returns 200).
+- 2026-07-17: Drafted `control-plane/ontology/streaming-event.ttl` (classes `StreamingEvent`, `User`, `Track`; object properties `performedBy`/`involvesTrack`; datatype properties `eventId`, `eventTimestamp`, `msPlayed`, `userId`, `trackId`) and `control-plane/shacl/streaming-event-shape.ttl` (the event "Contract" — requires `eventId`, `eventTimestamp`, a `performedBy`→`User` with `userId`, and an `involvesTrack`→`Track` with `trackId`; `msPlayed` optional). Both loaded into the running `zenfabrique` dataset (named graphs `.../graph/ontology`, `.../graph/shapes`) via Fuseki's data endpoint — HTTP 201, 47 and 45 triples respectively — confirming valid Turtle. SHACL enforcement itself (calling the validator from the orchestrator) is Phase 3 work, not yet wired up.
+- 2026-07-17: Scaffolded `orchestrator/` (Rust, edition 2021) with `config.rs` (loads `config/fabric.yaml`), `ingest.rs` (file-watch via `notify`, emits raw `serde_json::Value` over an mpsc channel — kept generic rather than a strict struct so a schema-drifted event still reaches the Phase 3 validator instead of failing to deserialize), and `validate.rs` (currently a logging stub — `forward()` proves the loop wiring; Phase 3 replaces it with the real SHACL call against Fuseki). Also needed the MSVC C++ Desktop workload added to the existing VS install (`link.exe` was missing) before `cargo build` would work. Verified end-to-end: dropped a mock "Song Played" JSON file into `events/input/`, watched it flow through detect → read → forward in the tracing logs. Hit and fixed a real bug along the way — `notify`'s `Create` event fires before Windows finishes flushing the file, so the first read attempt saw an empty file; `read_event()` now retries with backoff (up to 5 attempts) before giving up.
+- 2026-07-18: Implemented the self-healing loop. The auto-created Fuseki dataset (env-var based) couldn't expose a SHACL validation endpoint, so switched `docker-compose.yml` to a custom assembler config (`config/fuseki/zenfabrique.ttl`) defining the `zenfabrique` service with `query`/`update`/`data`/`shacl` endpoints over TDB2 — verified the `/shacl` endpoint manually via curl against both a valid and a broken RDF event before writing any Rust. New orchestrator modules: `rdf.rs` (alias-aware JSON→RDF extraction; missing fields are omitted rather than faked, so SHACL's `minCount` catches them naturally; `find_alias_candidate()` fuzzy-matches a missing canonical field against the event's actual keys — the "reasoning" step), `shacl.rs` (HTTP client: PUTs the event graph to a Fuseki staging graph, POSTs the shapes to `/shacl`, parses `sh:conforms` from the N-Triples report), `shim.rs` (DuckDB: `raw_events` append-only log + a `streaming_events` VIEW rebuilt from the current alias registry — being a view rather than a copy means widening an alias retroactively heals every past row using that key, not just future ones). `validate.rs` orchestrates: extract → on breach, fuzzy-match + widen aliases → re-validate → always persist raw.
+  Found and fixed a real durability bug during testing: the alias registry was in-memory only, so restarting the orchestrator forgot every repair it had learned (confirmed via `duckdb` CLI — a previously-healed row went back to `NULL`). Fixed by adding a `shim_aliases` table, loaded at startup and written to on every new discovery; re-verified across a process restart — the second run recognized the previously-learned alias immediately, with no repeat "schema breach" log.
+  Demoed all three cases end-to-end via the `duckdb` CLI against `data-plane/zenfabrique.duckdb`: a conforming event (straight pass), a repairable breach (`user_id` → `userId`, self-healed, `streaming_events.user_id` populated correctly), and an unrepairable breach (`track` → `trackId`, correctly left as `NULL` rather than force-matched — confirms the fuzzy-matcher doesn't over-guess).
+- 2026-07-18: Hardening pass against the 16-scenario adversarial matrix (`docs/testing/self-healing-adversarial-matrix.md`) — went from "spot-checked manually" to "16 unit tests + 2 live-Fuseki integration tests, all passing." Found and fixed two real gaps, not just documented them:
+  - **B2** (multiple candidate keys for one missing field, with *conflicting* values) was unhandled — the matcher would've silently picked whichever key sorted first. `find_alias_candidate` now returns an `AliasMatch` enum (`None`/`Unique`/`Ambiguous`); ambiguous conflicting candidates are refused rather than guessed, logged instead as "refusing to guess, not healed."
+  - **F2** (the `used_raw_keys` exclusion set going stale mid-loop across a multi-field repair pass) was a genuine latent bug — harmless only because the current 5 canonical fields all normalize to distinct strings, not because the code enforced it. Fixed by threading a locally-mutable `used` set through the repair loop in `validate.rs`; regression-tested with contrived colliding field names since the real ontology can't trigger it yet.
+  - **E1** (a learned alias key silently repurposed for something else later) isn't mechanically testable — nothing in the data distinguishes "still correct" from "silently gone stale." Mitigated instead of tested: `shim_aliases` gained `learned_at`/`last_used_at` columns (`ShimEngine::touch_alias`, called whenever a field resolves via a non-canonical key) plus `alias_audit()` for inspection — turns an invisible risk into an operationally-checkable one.
+  - **D1 confirmed as real** (not just theorized): a non-empty garbage `userId` value conforms cleanly against live Fuseki, since the shape only checks presence/shape, not plausibility. Documented as an accepted scope boundary, not fixed — value-plausibility heuristics would just be a second, riskier kind of guessing layered on the first.
+  - Tests live inline in each module (`#[cfg(test)] mod tests` in `rdf.rs`, `shim.rs`, `shacl.rs` — this is a bin-only crate, no `lib.rs`, so external `tests/` files can't reach these APIs). Run `cargo test --manifest-path orchestrator/Cargo.toml` for the 16 unit tests; add `-- --ignored` for the 2 that need live Fuseki.

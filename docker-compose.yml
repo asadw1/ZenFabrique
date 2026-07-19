@@ -1,0 +1,15 @@
+services:
+  jena:
+    image: stain/jena-fuseki:5.1.0
+    container_name: zenfabrique-jena
+    ports:
+      - "3030:3030"
+    environment:
+      ADMIN_PASSWORD: admin
+    volumes:
+      - jena-data:/fuseki
+      - ./control-plane/ontology:/staging/ontology:ro
+      - ./config/fuseki:/fuseki/configuration
+
+volumes:
+  jena-data:
