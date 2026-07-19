@@ -2,9 +2,9 @@
 
 Tracks progress on the **Thin Vertical Slice** (Two-Track strategy: prove the core loop end-to-end before integrating the Extended Architecture — see [ARCHITECTURE_DECISIONS.md](../architecture/ARCHITECTURE_DECISIONS.md)).
 
-**Vertical slice pipeline:** `File Ingest -> Jena/SHACL Validation -> Rust Orchestrator -> DuckDB Shim Repair`
+**Vertical slice pipeline:** `RabbitMQ Ingest (or file-watch, dev fallback) -> Jena/SHACL Validation -> Rust Orchestrator -> DuckDB Shim Repair`
 
-Last updated: 2026-07-19
+Last updated: 2026-07-19 (Phase 4 complete)
 
 ## Phase 1 — Foundation (Ontology)
 - [x] Design core `StreamingEvent` class (User, Track, Timestamp) in OWL/Turtle
@@ -24,12 +24,12 @@ Last updated: 2026-07-19
 - [x] Automate break-and-repair cycle end-to-end on a seeded bad event
 - [x] **Vertical slice demo:** drop a malformed JSON event into `events/input/`, observe automatic shim repair, confirm DuckDB view reflects healed data
 
-## Phase 4 — Transport (RabbitMQ) — not started
-- [ ] Stand up RabbitMQ (Docker)
-- [ ] Implement a RabbitMQ consumer behind the existing ingestion channel interface (swap-in for the file watcher; no changes to validation/shim logic downstream)
-- [ ] Update `config/fabric.yaml` with broker connection details
-- [ ] Verify the self-healing loop works end-to-end against the new transport
-- [ ] Decide the fate of file-watch ingestion (retire vs. keep as a dev-mode fallback)
+## Phase 4 — Transport (RabbitMQ)
+- [x] Stand up RabbitMQ (Docker)
+- [x] Implement a RabbitMQ consumer behind the existing ingestion channel interface (swap-in for the file watcher; no changes to validation/shim logic downstream)
+- [x] Update `config/fabric.yaml` with broker connection details
+- [x] Verify the self-healing loop works end-to-end against the new transport
+- [x] Decide the fate of file-watch ingestion (retire vs. keep as a dev-mode fallback) — **kept**, selectable via `ingestion.backend`
 
 ## Phase 5 — Security & Privacy (OPA & FHE) — not started
 - [ ] Define basic OPA policies in Rego (e.g., service access control)
@@ -75,3 +75,7 @@ Check a box when the task is done and demonstrably working (not just code writte
   - All 21 tests pass (18 unit + 3 live-Fuseki, up from 16+2).
 - 2026-07-19: Verified the Core MVP actually works from a truly fresh clone, not just "fresh enough" — `docker compose down -v` (wipes the Fuseki volume entirely) then `docker compose up -d jena` with **no manual ontology/shapes loading**, then ran the orchestrator straight against that untouched instance. Both a conforming and a self-healing event processed correctly. This means the Phase 1 `curl` steps for loading `streaming-event.ttl`/`streaming-event-shape.ttl` into Fuseki were only ever needed for *our own* manual SPARQL browsing during Phase 1 — the orchestrator never depended on them, since `shacl.rs` ships its own copy of the shapes file and POSTs it fresh on every call, and the assembler config creates the dataset + endpoints automatically. Fixed [README.md](../../README.md)'s Getting Started section accordingly: step 1 no longer implies manual loading is required, and step 3's `cargo run` command is corrected (it previously omitted `--manifest-path`, so as written it only worked if you happened to already be `cd`'d into `orchestrator/` — now given as a repo-root command that actually runs). Also fixed a stale reference claiming file-watch ingestion lasts "until Phase 2 is complete" (Phase 2 finished weeks ago; RabbitMQ replacing it is Phase 4, per ROADMAP.md).
 - 2026-07-19: **Core MVP (Phases 1-3) declared done.** Restructured the flat, undifferentiated "Deferred" list into dedicated Phase 4-7 sections, mirroring the granularity Phases 1-3 already had. This closed a real gap in the existing docs: ROADMAP.md's Phase 4-6 table only ever specified tasks for Security (OPA+FHE), Control Room UI, and Hardening — RabbitMQ, Trino, and Dagster had no assigned phase number at all (ARCHITECTURE_DECISIONS.md just lumped them into "Phases 4-6" collectively). Resolved by renumbering: **Phase 4 = Transport (RabbitMQ)** — narratively the first thing to tackle now that the loop is proven, per the Phase 2 note that's existed since the beginning — **Phase 5 = Security & Privacy (OPA+FHE)**, **Phase 6 = Control Room UI**, **Phase 7 = Federation, Orchestration & Hardening (Trino, Dagster, Parquet/Delta Lake, stress testing, the latency work flagged in Phase 3)**. Updated ROADMAP.md's phase table/detailed sections and ARCHITECTURE_DECISIONS.md's Extended Stack table (now tagged with a Phase column per component) to match.
+- 2026-07-19: **Phase 4 (RabbitMQ transport) complete.** Added `rabbitmq:4-management` to `docker-compose.yml`. Generalized `RawEvent` (`ingest.rs`) from filesystem-specific (`source_path: PathBuf`) to transport-agnostic (`source: String`, `fallback_id: String`) — `fallback_id` moved from being derived downstream in `validate.rs` to being supplied by whichever ingestion module produces the event, since only the transport knows its own natural identifier (filename stem vs. AMQP delivery tag). New `amqp.rs` module: a `lapin` (async AMQP client) consumer running on its own dedicated `tokio` runtime inside a background thread — deliberately not converting the whole orchestrator to async, just this one module — forwarding decoded events over the exact same `Receiver<RawEvent>` channel type the file watcher already used. `main.rs` now branches on a new `ingestion.backend` config field (`file_watch` | `rabbitmq`) to pick a transport; everything downstream (`validate::process`, `shim`, `shacl`) is unchanged, which was the actual point of Phase 4 per ROADMAP.md — proving the decoupling promise made back in Phase 2, not just adding a broker.
+  Verified live end-to-end against a real RabbitMQ container (not mocked): published a conforming event, a schema-drifted event (self-healed exactly as it does over file-watch), and a deliberately malformed-JSON "poison" message via `rabbitmqadmin` — the poison message was logged and acked (not redelivered forever) without killing the consumer, and the very next valid message processed normally right after. Confirmed the queue drains fully (`message_count: 0`, `unacknowledged_message_count: 0` via `rabbitmqadmin list queues`) — no stuck/redelivered messages. Also reran the file-watch backend afterward as a regression check (toggling `ingestion.backend` back) to confirm the swap is genuinely bidirectional, not a one-way migration.
+  Renamed the `raw_events.source_path` DuckDB column to `source` for consistency, now that it's not always a filesystem path (a cosmetic cleanup, not a functional change — local dev data only, no migration concern). All 18 unit tests + 3 live-Fuseki tests still pass unchanged.
+  Decided Phase 4's open question ("retire vs. keep file-watch as a dev-mode fallback"): **kept**, selectable via `ingestion.backend: file_watch` in `config/fabric.yaml` — useful for local dev without needing RabbitMQ running. `config/fabric.yaml`'s shipped default is now `backend: rabbitmq`, reflecting that it's the real transport going forward; the `IngestionBackend` enum's Rust-level default (if the field is omitted entirely) is `file_watch`, the safer zero-infra option.

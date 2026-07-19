@@ -22,7 +22,7 @@ impl ShimEngine {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS raw_events (
                 id BIGINT PRIMARY KEY,
-                source_path TEXT,
+                source TEXT,
                 payload JSON,
                 received_at TIMESTAMP DEFAULT current_timestamp
             );
@@ -67,13 +67,13 @@ impl ShimEngine {
         Ok(engine)
     }
 
-    pub fn insert_raw(&mut self, source_path: &str, payload_text: &str) -> Result<i64> {
+    pub fn insert_raw(&mut self, source: &str, payload_text: &str) -> Result<i64> {
         self.next_id += 1;
         let id = self.next_id;
         self.conn
             .execute(
-                "INSERT INTO raw_events (id, source_path, payload) VALUES (?, ?, ?)",
-                params![id, source_path, payload_text],
+                "INSERT INTO raw_events (id, source, payload) VALUES (?, ?, ?)",
+                params![id, source, payload_text],
             )
             .context("failed to insert raw event")?;
         Ok(id)
@@ -205,7 +205,7 @@ fn build_view_sql(aliases: &AliasMap) -> String {
         "CREATE OR REPLACE VIEW streaming_events AS
          SELECT
            id,
-           source_path,
+           source,
            received_at,
            {event_id} AS event_id,
            {timestamp} AS event_timestamp,

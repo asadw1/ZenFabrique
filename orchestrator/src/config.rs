@@ -12,7 +12,28 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct IngestionConfig {
-    pub watch_dir: PathBuf,
+    #[serde(default)]
+    pub backend: IngestionBackend,
+    pub watch_dir: Option<PathBuf>,
+    pub rabbitmq: Option<RabbitMqConfig>,
+}
+
+#[derive(Debug, Default, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum IngestionBackend {
+    // The safe zero-infra default if `backend` is omitted entirely —
+    // `config/fabric.yaml` itself opts into `rabbitmq` now that Phase 4 is
+    // live, but a config that predates this field shouldn't suddenly
+    // require a broker to start.
+    #[default]
+    FileWatch,
+    Rabbitmq,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RabbitMqConfig {
+    pub url: String,
+    pub queue: String,
 }
 
 #[derive(Debug, Deserialize)]

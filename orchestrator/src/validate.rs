@@ -14,20 +14,15 @@ use tracing::{info, warn};
 //      reflect it once/if it's healed
 pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> Result<()> {
     let started = std::time::Instant::now();
-    let source_path = event.source_path.display().to_string();
+    let source = event.source.clone();
     let payload_text = event.payload.to_string();
-    let fallback_id = event
-        .source_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let fallback_id = event.fallback_id.clone();
 
     let mut extracted = rdf::extract(&event.payload, shim.aliases());
 
     if !extracted.missing_required.is_empty() {
         warn!(
-            path = %source_path,
+            source = %source,
             missing = ?extracted.missing_required,
             "schema breach detected — attempting self-healing repair"
         );
@@ -46,7 +41,7 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
                     info!(
                         canonical = %field,
                         raw_key = %raw_key,
-                        path = %source_path,
+                        source = %source,
                         "self-healing: discovered renamed field, widening shim"
                     );
                     used.insert(raw_key.clone());
@@ -58,7 +53,7 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
                     warn!(
                         canonical = %field,
                         candidates = ?candidates,
-                        path = %source_path,
+                        source = %source,
                         "multiple candidate keys with conflicting values — refusing to guess, not healed"
                     );
                 }
@@ -88,7 +83,7 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
         match shacl.validate(&turtle) {
             Ok(conforms) => conforms,
             Err(e) => {
-                warn!(path = %source_path, error = %e, "SHACL validation call failed");
+                warn!(source = %source, error = %e, "SHACL validation call failed");
                 false
             }
         }
@@ -102,17 +97,17 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
     let duration_ms = started.elapsed().as_millis();
 
     if conforms {
-        info!(path = %source_path, duration_ms, "event conforms to StreamingEvent contract");
+        info!(source = %source, duration_ms, "event conforms to StreamingEvent contract");
     } else {
         warn!(
-            path = %source_path,
+            source = %source,
             missing = ?extracted.missing_required,
             duration_ms,
             "event does not conform — stored for audit, not healed"
         );
     }
 
-    shim.insert_raw(&source_path, &payload_text)?;
+    shim.insert_raw(&source, &payload_text)?;
 
     Ok(())
 }
@@ -149,9 +144,15 @@ mod tests {
         )
     }
 
-    fn raw_event(path: &str, payload: serde_json::Value) -> RawEvent {
+    fn raw_event(source: &str, payload: serde_json::Value) -> RawEvent {
+        let fallback_id = PathBuf::from(source)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
         RawEvent {
-            source_path: PathBuf::from(path),
+            source: source.to_string(),
+            fallback_id,
             payload,
         }
     }

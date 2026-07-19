@@ -1,5 +1,12 @@
 ingestion:
+  # Phase 4: RabbitMQ is now the real transport. Switch back to file_watch
+  # for local dev without a broker running — watch_dir stays valid either
+  # way, it's just unused when backend = rabbitmq.
+  backend: rabbitmq
   watch_dir: events/input
+  rabbitmq:
+    url: amqp://guest:guest@localhost:5672/%2f
+    queue: zenfabrique.events
 
 control_plane:
   fuseki_url: http://localhost:3030/zenfabrique

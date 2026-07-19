@@ -1,18 +1,25 @@
 use anyhow::{Context, Result};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use tracing::{info, warn};
 
+// Transport-agnostic: `source` is a human-readable label for logging (a
+// filesystem path for this module, an `amqp:<queue>:<delivery_tag>` string
+// for `amqp.rs`), and `fallback_id` is whatever natural identifier the
+// transport has on hand for an event that's missing its own `eventId` — the
+// downstream validate/shim logic never needs to know which transport
+// produced either one.
 pub struct RawEvent {
-    pub source_path: PathBuf,
+    pub source: String,
+    pub fallback_id: String,
     pub payload: serde_json::Value,
 }
 
-// Ingestion is intentionally file-watch-only for the vertical slice. Keeping
-// it behind this single channel is what lets Phase 4 swap in a RabbitMQ
-// consumer without touching validation/shim logic downstream (see
-// ARCHITECTURE_DECISIONS.md).
+// One of possibly several ingestion backends (see `amqp.rs` for the Phase 4
+// RabbitMQ consumer) feeding the same `Receiver<RawEvent>` — this is what
+// lets `main.rs` swap transports without validation/shim logic downstream
+// ever knowing which one is active (see ARCHITECTURE_DECISIONS.md).
 pub fn watch(watch_dir: &Path) -> Result<(Receiver<RawEvent>, RecommendedWatcher)> {
     let (fs_tx, fs_rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher =
@@ -46,10 +53,17 @@ pub fn watch(watch_dir: &Path) -> Result<(Receiver<RawEvent>, RecommendedWatcher
 
                 match read_event(&path) {
                     Ok(payload) => {
-                        if event_tx
-                            .send(RawEvent { source_path: path, payload })
-                            .is_err()
-                        {
+                        let fallback_id = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let event = RawEvent {
+                            source: path.display().to_string(),
+                            fallback_id,
+                            payload,
+                        };
+                        if event_tx.send(event).is_err() {
                             return; // receiver dropped, shut the watcher thread down
                         }
                     }

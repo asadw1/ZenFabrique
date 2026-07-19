@@ -19,3 +19,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = "2"
 base64 = "0.22"
 duckdb = { version = "1", features = ["bundled", "json"] }
+lapin = "4"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+futures-lite = "2"

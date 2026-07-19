@@ -11,5 +11,15 @@ services:
       - ./control-plane/ontology:/staging/ontology:ro
       - ./config/fuseki:/fuseki/configuration
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: zenfabrique-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # management UI (guest/guest, local dev only)
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
 volumes:
   jena-data:
+  rabbitmq-data:

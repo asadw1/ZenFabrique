@@ -117,30 +117,35 @@ Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagno
 
 ## 🚀 Getting Started
 
-> **Status:** ZenFabrique is being built as a "Thin Vertical Slice" first (see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split). The instructions below are split accordingly — the Core MVP steps are what's actually being built right now; the Extended Architecture steps describe the target end-state and are not yet implemented.
+> **Status:** The Thin Vertical Slice (Phases 1-3) and the Phase 4 transport swap are both done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the Extended Architecture steps (Phases 5-7) describe the target end-state and are not yet implemented.
 
-### Core MVP Build (current focus)
-Proves the Observe -> Reason -> Act loop end-to-end with the smallest viable stack. See [Requirements](#-requirements) above for what to install first.
+### Running it today
+Proves the Observe -> Reason -> Act loop end-to-end over a real message broker. See [Requirements](#-requirements) above for what to install first.
 
-1.  **Initialize Knowledge Graph:** `docker-compose up -d jena`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset — with SPARQL query/update, Graph Store, and SHACL validation endpoints — automatically on first boot. No manual data loading is required for the loop below to work; the orchestrator ships its own copy of the SHACL shapes and posts them fresh on every validation call. (Optional: load `control-plane/ontology/streaming-event.ttl` into Fuseki's Graph Store endpoint if you want to browse the ontology via SPARQL — see `docs/planning/STATUS.md` for the exact `curl` commands.)
-2.  **Seed mock events:** drop JSON event files into `events/input/` — this stands in for a real message broker until Phase 4.
+1.  **Bring up the Control Plane and the transport:** `docker-compose up -d jena rabbitmq`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset — with SPARQL query/update, Graph Store, and SHACL validation endpoints — automatically on first boot; no manual data loading required (the orchestrator ships its own copy of the SHACL shapes and posts them fresh on every validation call). RabbitMQ's management UI is at `http://localhost:15672` (guest/guest, local dev only).
+2.  **Seed events:** `config/fabric.yaml` defaults to `ingestion.backend: rabbitmq`, so publish JSON events onto the `zenfabrique.events` queue, e.g. via `rabbitmqadmin` inside the container:
+    ```bash
+    docker exec zenfabrique-rabbitmq rabbitmqadmin publish message \
+      --routing-key zenfabrique.events \
+      --payload '{"eventId":"evt-1","userId":"u1","trackId":"t1","timestamp":"2026-01-01T00:00:00","msPlayed":1000}'
+    ```
+    For local dev without a broker running, set `ingestion.backend: file_watch` in `config/fabric.yaml` instead and drop JSON files into `events/input/` — both backends feed the exact same downstream loop.
 3.  **Spin up the Nervous System:** run the Rust orchestrator from the repo root:
     ```bash
     cargo run --manifest-path orchestrator/Cargo.toml --release -- --config ./config/fabric.yaml
     ```
-4.  **Observe repair:** malformed events dropped in `events/input/` should trigger an automatic DuckDB shim; check the orchestrator logs (each event now logs a `duration_ms`) and query the resulting `streaming_events` view in `data-plane/zenfabrique.duckdb` with the `duckdb` CLI.
+4.  **Observe repair:** malformed events trigger an automatic DuckDB shim; check the orchestrator logs (each event logs a `duration_ms`) and query the resulting `streaming_events` view in `data-plane/zenfabrique.duckdb` with the `duckdb` CLI.
 
 ### Extended Architecture (target state, not yet implemented)
-Everything below is planned but deferred until the vertical slice above is proven — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 4-6.
+Everything below is planned but deferred until it's actually needed — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 5-7.
 
-* **Transport:** Replace file-watch ingestion with RabbitMQ.
-* **Policy Plane:** Deploy OPA with Rego policy bundles for zero-trust schema mutation and access control.
-* **Privacy:** Integrate FHE/SMPC for encrypted PII aggregation.
-* **Federation:** Add Trino for cross-source query federation; Dagster for asset-aware orchestration.
-* **Control Room UI:**
+* **Policy Plane (Phase 5):** Deploy OPA with Rego policy bundles for zero-trust schema mutation and access control.
+* **Privacy (Phase 5):** Integrate FHE/SMPC for encrypted PII aggregation.
+* **Control Room UI (Phase 6):**
     ```bash
     cd ui && npm install && npm run dev
     ```
+* **Federation & Hardening (Phase 7):** Add Trino for cross-source query federation; Dagster for asset-aware orchestration; stress testing and latency tuning.
 
 ---
 
