@@ -122,13 +122,13 @@ Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagno
 ### Core MVP Build (current focus)
 Proves the Observe -> Reason -> Act loop end-to-end with the smallest viable stack. See [Requirements](#-requirements) above for what to install first.
 
-1.  **Initialize Knowledge Graph:** `docker-compose up -d jena` and load the `.ttl` ontology files.
-2.  **Seed mock events:** drop JSON event files into `events/input/` — this stands in for a real message broker until Phase 2 is complete.
-3.  **Spin up the Nervous System:** Run the Rust controller:
+1.  **Initialize Knowledge Graph:** `docker-compose up -d jena`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset — with SPARQL query/update, Graph Store, and SHACL validation endpoints — automatically on first boot. No manual data loading is required for the loop below to work; the orchestrator ships its own copy of the SHACL shapes and posts them fresh on every validation call. (Optional: load `control-plane/ontology/streaming-event.ttl` into Fuseki's Graph Store endpoint if you want to browse the ontology via SPARQL — see `docs/planning/STATUS.md` for the exact `curl` commands.)
+2.  **Seed mock events:** drop JSON event files into `events/input/` — this stands in for a real message broker until Phase 4.
+3.  **Spin up the Nervous System:** run the Rust orchestrator from the repo root:
     ```bash
-    cargo run --release -- --config ./config/fabric.yaml
+    cargo run --manifest-path orchestrator/Cargo.toml --release -- --config ./config/fabric.yaml
     ```
-4.  **Observe repair:** malformed events dropped in `events/input/` should trigger an automatic DuckDB shim; check the orchestrator logs and the resulting DuckDB view.
+4.  **Observe repair:** malformed events dropped in `events/input/` should trigger an automatic DuckDB shim; check the orchestrator logs (each event now logs a `duration_ms`) and query the resulting `streaming_events` view in `data-plane/zenfabrique.duckdb` with the `duckdb` CLI.
 
 ### Extended Architecture (target state, not yet implemented)
 Everything below is planned but deferred until the vertical slice above is proven — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 4-6.
