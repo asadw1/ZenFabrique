@@ -403,6 +403,25 @@ mod tests {
         assert!(matches!(find_alias_candidate("trackId", o, &used), AliasMatch::None));
     }
 
+    // Extra/unknown fields in the payload must be safely ignored — no
+    // panic, no accidental inclusion in `values`/`resolved_via`, and no
+    // effect on which required fields are considered missing.
+    #[test]
+    fn extra_unknown_fields_are_ignored_safely() {
+        let payload = json!({
+            "eventId": "e1", "userId": "u1", "trackId": "t1",
+            "timestamp": "2026-01-01T00:00:00", "msPlayed": 1000,
+            "debugFlag": true, "requestId": "unrelated-value", "nested": {"a": 1}
+        });
+        let extracted = extract(&payload, &default_aliases());
+        assert!(extracted.missing_required.is_empty());
+        assert!(!extracted.values.contains_key("debugFlag"));
+        assert!(!extracted.values.contains_key("requestId"));
+        assert!(!extracted.values.contains_key("nested"));
+        assert!(!extracted.used_raw_keys.contains("debugFlag"));
+        assert!(!extracted.used_raw_keys.contains("requestId"));
+    }
+
     // F1 — duplicate JSON keys are technically grammar-valid; pin down that
     // serde_json resolves them last-value-wins rather than erroring, since
     // that's an assumption the rest of the pipeline implicitly relies on.

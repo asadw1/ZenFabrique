@@ -133,6 +133,29 @@ mod tests {
         );
     }
 
+    // Type drift: a timestamp sent as a Unix epoch integer instead of an
+    // ISO 8601 string. The rename-discovery matcher doesn't touch type
+    // drift at all (only the field name), so this event stays unrepaired —
+    // this test just confirms SHACL is the backstop that catches it, per
+    // the same xsd:dateTime lexical-validity check as a renamed field would
+    // get once resolved.
+    #[test]
+    #[ignore = "requires live Fuseki at localhost:3030 with the zenfabrique dataset"]
+    fn timestamp_as_epoch_int_is_lexically_invalid() {
+        let shacl = client();
+        let extracted = extracted_with(&[
+            ("eventId", "evt-epoch"),
+            ("userId", "u1"),
+            ("trackId", "t1"),
+            ("timestamp", "1768694400"),
+        ]);
+        let turtle = rdf::build_turtle("evt-epoch", &extracted);
+        assert!(
+            !shacl.validate(&turtle).unwrap(),
+            "an epoch-int timestamp should fail the xsd:dateTime datatype constraint"
+        );
+    }
+
     // D2 — a non-numeric msPlayed value should fail the xsd:nonNegativeInteger
     // datatype constraint's lexical-validity check.
     #[test]

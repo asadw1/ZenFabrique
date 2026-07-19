@@ -154,6 +154,15 @@ impl ShimEngine {
         Ok(out)
     }
 
+    // Audit-completeness helper: every ingested event, healed or not, should
+    // land exactly once here.
+    #[allow(dead_code)]
+    pub fn raw_event_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM raw_events", [], |r| r.get(0))
+            .context("failed to count raw_events")
+    }
+
     #[allow(dead_code)]
     pub fn query_streaming_event(&self, event_id: &str) -> Result<Option<StreamingEventRow>> {
         let mut stmt = self.conn.prepare(

@@ -13,6 +13,7 @@ use tracing::{info, warn};
 //   4. always persist the raw event so the shim view can (retroactively)
 //      reflect it once/if it's healed
 pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> Result<()> {
+    let started = std::time::Instant::now();
     let source_path = event.source_path.display().to_string();
     let payload_text = event.payload.to_string();
     let fallback_id = event
@@ -95,12 +96,18 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
         false
     };
 
+    // Logged on every event rather than sampled — cheap at this volume, and
+    // gives an actual number to point at instead of "no measurement yet"
+    // for the file-drop-to-decision latency question.
+    let duration_ms = started.elapsed().as_millis();
+
     if conforms {
-        info!(path = %source_path, "event conforms to StreamingEvent contract");
+        info!(path = %source_path, duration_ms, "event conforms to StreamingEvent contract");
     } else {
         warn!(
             path = %source_path,
             missing = ?extracted.missing_required,
+            duration_ms,
             "event does not conform — stored for audit, not healed"
         );
     }
@@ -108,4 +115,112 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
     shim.insert_raw(&source_path, &payload_text)?;
 
     Ok(())
+}
+
+// Resilience, audit-completeness, and cross-event-leakage coverage (the
+// three remaining "how do we know the vertical slice is proven" gaps that
+// the 16-scenario adversarial matrix didn't touch, since that pass was
+// about the matcher's correctness, not the pipeline's operational behavior).
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shim::ShimEngine;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    fn temp_db_path(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("zenfabrique_test_validate_{name}_{nanos}.duckdb"))
+    }
+
+    // Port 1 has nothing listening, so connections fail fast (refused)
+    // rather than hanging on a timeout — this exercises the real
+    // "Fuseki unreachable" error path without needing to actually stop the
+    // docker container from a test.
+    fn dead_shacl_client() -> ShaclClient {
+        ShaclClient::new(
+            "http://127.0.0.1:1/zenfabrique".to_string(),
+            String::new(),
+            "admin",
+            "admin",
+        )
+    }
+
+    fn raw_event(path: &str, payload: serde_json::Value) -> RawEvent {
+        RawEvent {
+            source_path: PathBuf::from(path),
+            payload,
+        }
+    }
+
+    #[test]
+    fn batch_survives_fuseki_outage_with_full_audit_and_no_leakage() {
+        let path = temp_db_path("batch");
+        let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
+        let shacl = dead_shacl_client();
+
+        let events = vec![
+            raw_event(
+                "e1.json",
+                json!({"eventId": "e1", "userId": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00"}),
+            ),
+            // repaired via a different alias per field, to catch any
+            // accidental sharing of state between events
+            raw_event(
+                "e2.json",
+                json!({"eventId": "e2", "user_id": "u2", "trackId": "t2", "timestamp": "2026-01-01T00:01:00"}),
+            ),
+            raw_event(
+                "e3.json",
+                json!({"eventId": "e3", "userId": "u3", "track_id": "t3", "timestamp": "2026-01-01T00:02:00"}),
+            ),
+            // extra/unknown fields alongside otherwise-complete data
+            raw_event(
+                "e4.json",
+                json!({
+                    "eventId": "e4", "userId": "u4", "trackId": "t4", "timestamp": "2026-01-01T00:03:00",
+                    "debugFlag": true, "requestId": "unrelated-value"
+                }),
+            ),
+            // genuinely unrepairable — no trackId, nothing plausibly renamed
+            raw_event(
+                "e5.json",
+                json!({"eventId": "e5", "userId": "u5", "timestamp": "2026-01-01T00:04:00"}),
+            ),
+        ];
+
+        for event in &events {
+            process(event, &shacl, &mut shim).expect("process() must not error even with Fuseki unreachable");
+        }
+
+        // Audit completeness: every event landed exactly once, healed or not.
+        assert_eq!(shim.raw_event_count().unwrap(), events.len() as i64);
+
+        // No cross-event leakage: each row must resolve to its OWN values.
+        let e1 = shim.query_streaming_event("e1").unwrap().unwrap();
+        assert_eq!(e1.user_id, Some("u1".to_string()));
+        assert_eq!(e1.track_id, Some("t1".to_string()));
+
+        let e2 = shim.query_streaming_event("e2").unwrap().unwrap();
+        assert_eq!(e2.user_id, Some("u2".to_string()));
+        assert_eq!(e2.track_id, Some("t2".to_string()));
+
+        let e3 = shim.query_streaming_event("e3").unwrap().unwrap();
+        assert_eq!(e3.user_id, Some("u3".to_string()));
+        assert_eq!(e3.track_id, Some("t3".to_string()));
+
+        let e4 = shim.query_streaming_event("e4").unwrap().unwrap();
+        assert_eq!(e4.user_id, Some("u4".to_string()));
+        assert_eq!(e4.track_id, Some("t4".to_string()));
+
+        let e5 = shim.query_streaming_event("e5").unwrap().unwrap();
+        assert_eq!(e5.user_id, Some("u5".to_string()));
+        assert_eq!(e5.track_id, None, "e5 must not have picked up a neighbor's trackId");
+
+        drop(shim);
+        let _ = std::fs::remove_file(&path);
+    }
 }
