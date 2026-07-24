@@ -25,8 +25,8 @@ Per-component phase assignment, see [ROADMAP.md](../planning/ROADMAP.md) for wha
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Transport | RabbitMQ | Mozilla Public License 2.0 | Yes | 4 | Replaces file-watch ingestion now that the Core loop is proven. |
 | Policy engine | Open Policy Agent (OPA) + Rego | Apache 2.0 | Yes | 5 | |
-| Privacy (FHE) | OpenFHE | BSD 2-Clause | Yes | 5 | Default choice — see decision below. |
-| Privacy (FHE), alternative | Concrete (Zama) | BSD-3-Clause-Clear | **Needs verification** | 5 | Not an OSI-approved license (excludes patent grant); source-available but ambiguous under a strict FOSS reading. Do not adopt without re-confirming against the FOSS constraint at Phase 5 kickoff. |
+| Privacy (FHE) | OpenFHE, run as a Dockerized service (Python bindings) behind an HTTP API — not linked directly into the Rust orchestrator | BSD 2-Clause | Yes | 5 | **Confirmed at Phase 5 kickoff (2026-07-23).** Direct FFI linkage (the original plan) isn't realistic on this project's Windows dev machine: no `cmake`/`vcpkg`, and OpenFHE's Windows/MSVC support is experimental. Runs as a separate Docker service instead, called over HTTP the same way the orchestrator already calls Fuseki — consistent with how Jena and RabbitMQ are integrated (network services, not linked libraries). |
+| Privacy (FHE), alternative | Concrete (Zama) / `tfhe-rs` | BSD-3-Clause-Clear | **Rejected (2026-07-23)** | 5 | Not an OSI-approved license (excludes patent grant); source-available but ambiguous under a strict FOSS reading. `tfhe-rs` looked like an easier Rust-native path than OpenFHE but shares this exact license family — adopting it would re-create the problem this flag exists to catch. OpenFHE is the confirmed choice. |
 | Control Room UI framework | Svelte | MIT | Yes | 6 | Locked in. |
 | Graph visualization | Cytoscape.js | MIT | Yes | 6 | |
 | Telemetry transport | WebSockets | Protocol (no license) | N/A | 6 | |
@@ -37,7 +37,7 @@ Per-component phase assignment, see [ROADMAP.md](../planning/ROADMAP.md) for wha
 ## Rejected / Flagged Options
 
 - **Stardog** (listed in the original README as a Jena alternative) is **commercial, closed-source software** — it does not satisfy the FOSS constraint. **Decision: dropped.** Jena/Fuseki is the sole Control Plane store, for both the Core and Extended stacks.
-- **Concrete (Zama)** — flagged above, not rejected outright. If FHE work in Phase 5 needs Concrete's specific feature set, re-verify its license against the project's FOSS bar before adopting; otherwise default to OpenFHE.
+- **Concrete (Zama) / `tfhe-rs`** — re-verified and rejected at Phase 5 kickoff (2026-07-23): both share the same non-OSI-approved BSD-3-Clause-Clear license. OpenFHE (BSD-2) is the confirmed FHE choice, run as a Dockerized service rather than linked directly into the orchestrator — see the Extended Stack table above.
 
 ## Design principle: decoupling for hot-swap
 

@@ -71,9 +71,20 @@ async fn consume(url: &str, queue: &str, event_tx: mpsc::Sender<RawEvent>) -> Re
 
         match serde_json::from_slice::<serde_json::Value>(&delivery.data) {
             Ok(payload) => {
+                // `app_id` is the AMQP property meant for exactly this — the
+                // publishing application's identity — unlike `delivery_tag`,
+                // which is a per-message sequence number and never repeats,
+                // so it can't serve as a trust boundary for policy checks.
+                let origin = delivery
+                    .properties
+                    .app_id()
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown-app".to_string());
                 let event = RawEvent {
                     source: format!("amqp:{queue}:{delivery_tag}"),
                     fallback_id: format!("amqp-{delivery_tag}"),
+                    origin,
                     payload,
                 };
                 if event_tx.send(event).is_err() {

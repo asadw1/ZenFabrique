@@ -1,6 +1,7 @@
 mod amqp;
 mod config;
 mod ingest;
+mod opa;
 mod rdf;
 mod shacl;
 mod shim;
@@ -40,6 +41,17 @@ fn main() -> anyhow::Result<()> {
 
     let mut shim = shim::ShimEngine::open(&config.data_plane.duckdb_path, rdf::default_aliases())?;
 
+    let opa_client = match &config.policy_plane {
+        Some(policy) => {
+            tracing::info!(opa_url = %policy.opa_url, "schema mutations gated by OPA policy");
+            opa::OpaClient::remote(&policy.opa_url)
+        }
+        None => {
+            tracing::warn!("no policy_plane configured — schema mutations are unrestricted");
+            opa::OpaClient::disabled()
+        }
+    };
+
     // Same `Receiver<RawEvent>` regardless of backend — this is the payoff
     // of keeping ingestion behind one channel: swapping transports touches
     // only this block, not validate::process or anything downstream.
@@ -67,7 +79,7 @@ fn main() -> anyhow::Result<()> {
         };
 
     for event in events {
-        if let Err(e) = validate::process(&event, &shacl_client, &mut shim) {
+        if let Err(e) = validate::process(&event, &shacl_client, &opa_client, &mut shim) {
             tracing::warn!(error = %e, "failed to process event");
         }
     }

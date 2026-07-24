@@ -6,13 +6,18 @@ use tracing::{info, warn};
 
 // Transport-agnostic: `source` is a human-readable label for logging (a
 // filesystem path for this module, an `amqp:<queue>:<delivery_tag>` string
-// for `amqp.rs`), and `fallback_id` is whatever natural identifier the
-// transport has on hand for an event that's missing its own `eventId` — the
-// downstream validate/shim logic never needs to know which transport
-// produced either one.
+// for `amqp.rs`), `fallback_id` is whatever natural identifier the transport
+// has on hand for an event that's missing its own `eventId`, and `origin` is
+// the publisher identity policy decisions key off (the filename stem here —
+// the closest thing file-watch has to "who published this" — vs. the AMQP
+// `app_id` property in `amqp.rs`, since `source` there is a per-delivery
+// string that's never the same twice and can't serve as a trust boundary).
+// The downstream validate/shim logic never needs to know which transport
+// produced any of the three.
 pub struct RawEvent {
     pub source: String,
     pub fallback_id: String,
+    pub origin: String,
     pub payload: serde_json::Value,
 }
 
@@ -60,6 +65,7 @@ pub fn watch(watch_dir: &Path) -> Result<(Receiver<RawEvent>, RecommendedWatcher
                             .to_string();
                         let event = RawEvent {
                             source: path.display().to_string(),
+                            origin: fallback_id.clone(),
                             fallback_id,
                             payload,
                         };

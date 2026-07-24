@@ -20,6 +20,15 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
+  opa:
+    image: openpolicyagent/opa:1.4.2-static
+    container_name: zenfabrique-opa
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policy-plane/rego:/policies:ro
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]
+
 volumes:
   jena-data:
   rabbitmq-data:

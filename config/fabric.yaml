@@ -17,5 +17,12 @@ control_plane:
 data_plane:
   duckdb_path: data-plane/zenfabrique.duckdb
 
+# Phase 5: gates self-healing schema mutations (alias learning) through OPA.
+# Comment out / remove this whole section for local dev without OPA running —
+# schema mutations then go unrestricted rather than the orchestrator refusing
+# to start.
+policy_plane:
+  opa_url: http://localhost:8181
+
 logging:
   level: info

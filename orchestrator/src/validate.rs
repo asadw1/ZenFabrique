@@ -1,4 +1,5 @@
 use crate::ingest::RawEvent;
+use crate::opa::OpaClient;
 use crate::rdf;
 use crate::shacl::ShaclClient;
 use crate::shim::ShimEngine;
@@ -8,13 +9,15 @@ use tracing::{info, warn};
 // The Observe -> Reason -> Act loop for a single event:
 //   1. extract known fields, build RDF, validate against the SHACL contract
 //   2. on breach, try to fuzzy-match missing fields against the event's
-//      actual keys and widen the shim's alias registry (the "repair")
+//      actual keys; a unique candidate still needs an OPA policy check
+//      before the shim's alias registry is actually widened (the "repair")
 //   3. re-validate to confirm the repair actually worked
 //   4. always persist the raw event so the shim view can (retroactively)
 //      reflect it once/if it's healed
-pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> Result<()> {
+pub fn process(event: &RawEvent, shacl: &ShaclClient, opa: &OpaClient, shim: &mut ShimEngine) -> Result<()> {
     let started = std::time::Instant::now();
     let source = event.source.clone();
+    let origin = event.origin.clone();
     let payload_text = event.payload.to_string();
     let fallback_id = event.fallback_id.clone();
 
@@ -38,13 +41,22 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
         for field in extracted.missing_required.clone() {
             match rdf::find_alias_candidate(&field, payload_obj, &used) {
                 rdf::AliasMatch::Unique(raw_key) => {
+                    used.insert(raw_key.clone());
+                    if !opa.allow_mutation(&origin, &field, &raw_key) {
+                        warn!(
+                            canonical = %field,
+                            raw_key = %raw_key,
+                            origin = %origin,
+                            "policy denied schema mutation — not healed"
+                        );
+                        continue;
+                    }
                     info!(
                         canonical = %field,
                         raw_key = %raw_key,
                         source = %source,
                         "self-healing: discovered renamed field, widening shim"
                     );
-                    used.insert(raw_key.clone());
                     if shim.learn_alias(&field, &raw_key)? {
                         learned_any = true;
                     }
@@ -119,6 +131,7 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, shim: &mut ShimEngine) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::opa::OpaClient;
     use crate::shim::ShimEngine;
     use serde_json::json;
     use std::path::PathBuf;
@@ -152,6 +165,7 @@ mod tests {
             .to_string();
         RawEvent {
             source: source.to_string(),
+            origin: fallback_id.clone(),
             fallback_id,
             payload,
         }
@@ -162,6 +176,10 @@ mod tests {
         let path = temp_db_path("batch");
         let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
         let shacl = dead_shacl_client();
+        // Bypasses policy — this test is about surviving a Fuseki outage
+        // with full audit/no-leakage, not about policy gating (see the
+        // dedicated policy tests below).
+        let opa = OpaClient::disabled();
 
         let events = vec![
             raw_event(
@@ -194,7 +212,7 @@ mod tests {
         ];
 
         for event in &events {
-            process(event, &shacl, &mut shim).expect("process() must not error even with Fuseki unreachable");
+            process(event, &shacl, &opa, &mut shim).expect("process() must not error even with Fuseki unreachable");
         }
 
         // Audit completeness: every event landed exactly once, healed or not.
@@ -220,6 +238,70 @@ mod tests {
         let e5 = shim.query_streaming_event("e5").unwrap().unwrap();
         assert_eq!(e5.user_id, Some("u5".to_string()));
         assert_eq!(e5.track_id, None, "e5 must not have picked up a neighbor's trackId");
+
+        drop(shim);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // A policy engine that's down must not be treated as "policy has no
+    // opinion" — fail-closed means the mutation stays unhealed, same as if
+    // it had been explicitly denied.
+    #[test]
+    fn unreachable_opa_leaves_field_unhealed() {
+        let path = temp_db_path("policy_unreachable");
+        let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
+        let shacl = dead_shacl_client();
+        let opa = OpaClient::remote("http://127.0.0.1:1");
+
+        let event = raw_event(
+            "e1.json",
+            json!({"eventId": "e1", "user_id": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00"}),
+        );
+        process(&event, &shacl, &opa, &mut shim).unwrap();
+
+        let e1 = shim.query_streaming_event("e1").unwrap().unwrap();
+        assert_eq!(e1.user_id, None, "fail-closed: an unreachable policy engine must deny, not skip, the check");
+
+        drop(shim);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // Requires `docker compose up -d opa` with policy-plane/rego loaded
+    // (mounted directly by the compose service, no manual load step).
+    #[test]
+    #[ignore = "requires live OPA at localhost:8181 with policy-plane/rego loaded"]
+    fn policy_gates_protected_field_mutation_by_source_trust() {
+        let path = temp_db_path("policy_live");
+        let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
+        let shacl = dead_shacl_client();
+        let opa = OpaClient::remote("http://localhost:8181");
+
+        // untrusted-source: userId is protected, source isn't trusted -> denied
+        let denied = raw_event(
+            "untrusted-source",
+            json!({"eventId": "e-denied", "user_id": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00"}),
+        );
+        process(&denied, &shacl, &opa, &mut shim).unwrap();
+        let e_denied = shim.query_streaming_event("e-denied").unwrap().unwrap();
+        assert_eq!(e_denied.user_id, None, "protected field mutation from an untrusted source must be denied");
+
+        // partner-feed: userId is protected, but this source is trusted -> allowed
+        let allowed = raw_event(
+            "partner-feed",
+            json!({"eventId": "e-allowed", "user_id": "u2", "trackId": "t2", "timestamp": "2026-01-01T00:01:00"}),
+        );
+        process(&allowed, &shacl, &opa, &mut shim).unwrap();
+        let e_allowed = shim.query_streaming_event("e-allowed").unwrap().unwrap();
+        assert_eq!(e_allowed.user_id, Some("u2".to_string()), "protected field mutation from a trusted source must be allowed");
+
+        // untrusted-source: trackId isn't protected -> allowed regardless of source trust
+        let unprotected = raw_event(
+            "untrusted-source",
+            json!({"eventId": "e-unprotected", "userId": "u3", "track_id": "t3", "timestamp": "2026-01-01T00:02:00"}),
+        );
+        process(&unprotected, &shacl, &opa, &mut shim).unwrap();
+        let e_unprotected = shim.query_streaming_event("e-unprotected").unwrap().unwrap();
+        assert_eq!(e_unprotected.track_id, Some("t3".to_string()), "unprotected field mutation is allowed for any source");
 
         drop(shim);
         let _ = std::fs::remove_file(&path);

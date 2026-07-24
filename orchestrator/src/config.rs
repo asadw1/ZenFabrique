@@ -6,6 +6,12 @@ pub struct Config {
     pub ingestion: IngestionConfig,
     pub control_plane: ControlPlaneConfig,
     pub data_plane: DataPlaneConfig,
+    // Absent entirely = no OPA deployed; schema mutations go unrestricted
+    // (logged as such at startup) rather than the orchestrator refusing to
+    // start, so local dev doesn't require standing up OPA just to see the
+    // self-healing loop work.
+    #[serde(default)]
+    pub policy_plane: Option<PolicyPlaneConfig>,
     #[serde(default)]
     pub logging: LoggingConfig,
 }
@@ -49,6 +55,11 @@ pub struct ControlPlaneConfig {
 #[derive(Debug, Deserialize)]
 pub struct DataPlaneConfig {
     pub duckdb_path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PolicyPlaneConfig {
+    pub opa_url: String,
 }
 
 #[derive(Debug, Deserialize)]
