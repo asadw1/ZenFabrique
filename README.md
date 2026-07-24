@@ -12,7 +12,7 @@ Built specifically for the music streaming domain, this project explores how a d
 
 ---
 
-## 📋 Requirements
+## Requirements
 
 ZenFabrique is being built as a Core MVP vertical slice first, with the Extended Architecture layered in later (see [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md)). Install only what the track you're working on needs.
 
@@ -39,7 +39,7 @@ Only install these once you're actually working on their corresponding roadmap p
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 ZenFabrique is built using a highly decoupled, state-of-the-art open-source stack to demonstrate advanced active metadata and zero-copy paradigms.
 
@@ -69,28 +69,13 @@ ZenFabrique is built using a highly decoupled, state-of-the-art open-source stac
 
 ---
 
-## 🏛️ Architecture Overview
+## Architecture Overview
 
-The system is designed as a three-plane architecture, separating the "Brain," the "Muscle," and the "Conscience."
-
-### 1. The Control Plane (The Brain)
-* **Role:** Defines the truth.
-* **Tech:** Apache Jena / Stardog (RDF/OWL).
-* **Function:** Stores the business logic as an ontology. Every data event is validated against **SHACL (Shapes Constraint Language)** shapes. This layer is where we perform SPARQL reasoning to understand the semantic relationships between streaming events.
-
-### 2. The Data Plane (The Muscle)
-* **Role:** Handles data movement and transformation.
-* **Tech:** DuckDB (WASM/Process) & Trino.
-* **Function:** Executes zero-copy analytics. When schemas drift, this layer dynamically generates "Shims" (virtualized SQL views) to map new data formats back to the expected ontology without re-writing the physical storage.
-
-### 3. The Policy Plane (The Conscience)
-* **Role:** Enforces security and zero-trust.
-* **Tech:** Open Policy Agent (OPA).
-* **Function:** Decides who—or what—can perform schema evolution or access raw PII. Policies are written in Rego and dynamically evaluated at runtime.
+ZenFabrique is a three-plane architecture — a Control Plane ("Brain") that stores the ontology and validates events against SHACL shapes, a Data Plane ("Muscle") that executes zero-copy analytics and generates DuckDB shims when schemas drift, and a Policy Plane ("Conscience") that gates schema evolution and PII access via OPA/Rego. See [docs/architecture/ARCHITECTURE_OVERVIEW.md](docs/architecture/ARCHITECTURE_OVERVIEW.md) for the full breakdown of each plane's role, tech, and function.
 
 ---
 
-## 🧠 The "Self-Healing" Workflow
+## The "Self-Healing" Workflow
 
 The fabric operates on an **Observe -> Reason -> Act** loop:
 
@@ -104,12 +89,12 @@ The fabric operates on an **Observe -> Reason -> Act** loop:
 
 ---
 
-## 🛡️ Privacy-Preserving Analytics (FHE)
+## Privacy-Preserving Analytics (FHE)
 The fabric integrates Privacy-as-Code. User listening history is sensitive PII. Using Homomorphic Encryption (FHE) techniques, the system allows the Analytics Engine to calculate aggregate metrics (e.g., "Total Plays per Artist") across encrypted data. The data is only decrypted at the final output gate, ensuring full compliance without sacrificing analytical utility.
 
 ---
 
-## 🖥️ The "Control Room" Dashboard
+## The "Control Room" Dashboard
 Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagnostic dashboard for the system's "nervous system."
 
 * **Observability Stream:** Real-time logging of schema evolution and autonomous repairs — a terminal-style console fed by a WebSocket straight from the orchestrator's own tracing output. **Live today.**
@@ -118,12 +103,12 @@ Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagno
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 > **Status:** The Thin Vertical Slice (Phases 1-3), the Phase 4 transport swap, Phase 5 (OPA policy gate + FHE-encrypted aggregation), and the Phase 6 console are all done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the remaining Extended Architecture steps (the Phase 6 Cytoscape graph, Phase 7) describe the target end-state and are not yet implemented.
 
 ### Running it today
-Proves the Observe -> Reason -> Act loop end-to-end over a real message broker, with schema mutations gated by policy and usage metrics protected by FHE. See [Requirements](#-requirements) above for what to install first.
+Proves the Observe -> Reason -> Act loop end-to-end over a real message broker, with schema mutations gated by policy and usage metrics protected by FHE. See [Requirements](#requirements) above for what to install first.
 
 1.  **Bring up the Control Plane, transport, policy, and privacy services:** `docker-compose up -d jena rabbitmq opa fhe`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset automatically on first boot; OPA mounts `policy-plane/rego/` directly (no manual policy load); `fhe` builds its own image from `privacy-plane/fhe/` on first run (a few seconds). RabbitMQ's management UI is at `http://localhost:15672` (guest/guest, local dev only).
 2.  **Seed events:** `config/fabric.yaml` defaults to `ingestion.backend: rabbitmq`, so publish JSON events onto the `zenfabrique.events` queue, e.g. via `rabbitmqadmin` inside the container:
@@ -156,7 +141,7 @@ Everything below is planned but deferred until it's actually needed — see [doc
 
 ---
 
-## 📜 Future Layering
+## Future Layering
 This architecture is modular by design. Future roadmap includes:
 * **Federated GraphQL:** To allow unified querying across external data sources.
 * **Advanced Logic Reasoning:** Implementing fully automated ontology expansion based on emerging data patterns.
