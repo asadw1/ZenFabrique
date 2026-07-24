@@ -27,9 +27,9 @@ Per-component phase assignment, see [ROADMAP.md](../planning/ROADMAP.md) for wha
 | Policy engine | Open Policy Agent (OPA) + Rego | Apache 2.0 | Yes | 5 | |
 | Privacy (FHE) | OpenFHE, run as a Dockerized service (Python bindings) behind an HTTP API — not linked directly into the Rust orchestrator | BSD 2-Clause | Yes | 5 | **Confirmed at Phase 5 kickoff (2026-07-23).** Direct FFI linkage (the original plan) isn't realistic on this project's Windows dev machine: no `cmake`/`vcpkg`, and OpenFHE's Windows/MSVC support is experimental. Runs as a separate Docker service instead, called over HTTP the same way the orchestrator already calls Fuseki — consistent with how Jena and RabbitMQ are integrated (network services, not linked libraries). |
 | Privacy (FHE), alternative | Concrete (Zama) / `tfhe-rs` | BSD-3-Clause-Clear | **Rejected (2026-07-23)** | 5 | Not an OSI-approved license (excludes patent grant); source-available but ambiguous under a strict FOSS reading. `tfhe-rs` looked like an easier Rust-native path than OpenFHE but shares this exact license family — adopting it would re-create the problem this flag exists to catch. OpenFHE is the confirmed choice. |
-| Control Room UI framework | Svelte | MIT | Yes | 6 | Locked in. |
-| Graph visualization | Cytoscape.js | MIT | Yes | 6 | |
-| Telemetry transport | WebSockets | Protocol (no license) | N/A | 6 | |
+| Control Room UI framework | Svelte 5 (Vite, plain JS — no SvelteKit) | MIT | Yes | 6 | **Live (2026-07-23).** |
+| Telemetry transport | WebSockets (`tokio-tungstenite`, own background-thread runtime) | Protocol (no license) / MIT | N/A | 6 | **Live (2026-07-23).** Implemented as a custom `tracing_subscriber::Layer` rather than a call threaded through every call site — see `orchestrator/src/telemetry.rs`. |
+| Graph visualization | Cytoscape.js | MIT | Yes | 6 | Deliberately deferred — Phase 6 was scoped console-first, fully tested end-to-end, before taking this on. |
 | Query federation | Trino | Apache 2.0 | Yes | 7 | |
 | Orchestration/lineage | Dagster (OSS core) | Apache 2.0 | Yes | 7 | Avoid Dagster+ (managed/commercial) — OSS core only. |
 | Storage format | Apache Parquet / Delta Lake | Apache 2.0 | Yes | 7 | |

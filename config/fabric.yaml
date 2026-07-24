@@ -32,5 +32,11 @@ policy_plane:
 privacy_plane:
   fhe_url: http://localhost:8090
 
+# Phase 6: streams the orchestrator's own tracing output to any connected
+# Control Room console over a WebSocket. Comment out / remove this whole
+# section to run without it — nothing downstream depends on it.
+telemetry:
+  ws_addr: 127.0.0.1:9001
+
 logging:
   level: info

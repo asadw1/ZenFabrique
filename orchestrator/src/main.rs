@@ -6,6 +6,7 @@ mod opa;
 mod rdf;
 mod shacl;
 mod shim;
+mod telemetry;
 mod validate;
 
 use clap::Parser;
@@ -13,7 +14,10 @@ use config::{Config, IngestionBackend};
 use notify::RecommendedWatcher;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 #[derive(Parser)]
 #[command(name = "zenfabrique-orchestrator")]
@@ -31,9 +35,25 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = Config::load(&args.config)?;
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new(config.logging.level.clone()))
-        .init();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(EnvFilter::new(config.logging.level.clone()));
+
+    // The Control Room console (Phase 6) is a live tail of the exact same
+    // tracing events the terminal already gets — see telemetry.rs for why
+    // this is a subscriber Layer rather than a call threaded through every
+    // call site.
+    match &config.telemetry {
+        Some(t) => {
+            let hub = telemetry::TelemetryHub::new();
+            let broadcast_layer = hub.layer().with_filter(EnvFilter::new(config.logging.level.clone()));
+            tracing_subscriber::registry().with(fmt_layer).with(broadcast_layer).init();
+            tracing::info!(ws_addr = %t.ws_addr, "telemetry console WebSocket server starting");
+            hub.serve(&t.ws_addr);
+        }
+        None => {
+            tracing_subscriber::registry().with(fmt_layer).init();
+        }
+    }
 
     let fhe_client = match &config.privacy_plane {
         Some(privacy) => fhe::FheClient::remote(&privacy.fhe_url),

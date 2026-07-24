@@ -20,6 +20,7 @@ ZenFabrique is being built as a Core MVP vertical slice first, with the Extended
 | [Docker](https://docs.docker.com/get-docker/) + Docker Compose | 24+ | Runs Apache Jena/Fuseki locally (`docker-compose up -d jena`). |
 | [DuckDB](https://duckdb.org/docs/installation/) | 0.10+ | Executes the generated shim SQL views. CLI is enough for manual inspection; the orchestrator links it via the `duckdb` Rust crate. |
 | [Git](https://git-scm.com/downloads) | 2.x | Version control (this repo). |
+| [Node.js](https://nodejs.org/) + npm | 20 LTS+ | Builds and runs the Svelte Control Room console (`ui/`). |
 
 OPA and the FHE service (OpenFHE, via its Python bindings) are both live as of Phase 5 — no separate install needed, `docker-compose up -d opa fhe` covers both (the `fhe` service builds its own image from `privacy-plane/fhe/`).
 
@@ -29,7 +30,6 @@ Only install these once you're actually working on their corresponding roadmap p
 
 | Software | Version | Why it's needed |
 | :--- | :--- | :--- |
-| [Node.js](https://nodejs.org/) + npm | 20 LTS+ | Builds and runs the Svelte "Control Room" dashboard. |
 | [Trino](https://trino.io/download.html) | 440+ | Cross-source query federation. |
 | Python 3.11+ | — | Required by [Dagster](https://docs.dagster.io/getting-started/install) for asset orchestration. |
 
@@ -55,9 +55,9 @@ ZenFabrique is built using a highly decoupled, state-of-the-art open-source stac
 
 ### Diagnostic "Control Room" Frontend
 
-* **Svelte:** Light-weight, high-reactivity framework for the UI state.
-* **Cytoscape.js:** Graph theory and visualization library used to map the real-time topology of the active ontology and visible shim adaptors.
-* **WebSockets:** Bidirectional communication channel pulling active telemetry and validation logs directly from the Rust orchestrator.
+* **Svelte:** Light-weight, high-reactivity framework for the UI state. **Live today** as a terminal-style console (`ui/`).
+* **WebSockets:** Bidirectional communication channel pulling active telemetry and validation logs directly from the Rust orchestrator. **Live today** — see `orchestrator/src/telemetry.rs`.
+* **Cytoscape.js:** Graph theory and visualization library used to map the real-time topology of the active ontology and visible shim adaptors. **Not yet implemented** — Phase 6 was deliberately scoped console-first; the graph view is the next increment.
 
 ### Advanced Cryptography
 
@@ -108,15 +108,15 @@ The fabric integrates Privacy-as-Code. User listening history is sensitive PII. 
 ## 🖥️ The "Control Room" Dashboard
 Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagnostic dashboard for the system's "nervous system."
 
-* **Topology Graph:** Visualizes the Knowledge Graph (using Cytoscape.js) to show current connections and "shim" nodes.
-* **Observability Stream:** Real-time logging of schema evolution and autonomous repairs.
-* **Policy Gate:** A toggle interface for OPA policies, allowing you to simulate "Zero-Trust" enforcement and observe the system rejecting unauthorized data changes in real-time.
+* **Observability Stream:** Real-time logging of schema evolution and autonomous repairs — a terminal-style console fed by a WebSocket straight from the orchestrator's own tracing output. **Live today.**
+* **Topology Graph:** Visualizes the Knowledge Graph (using Cytoscape.js) to show current connections and "shim" nodes. **Not yet implemented** — deliberately deferred until the console above is fully working end-to-end (see STATUS.md).
+* **Policy Gate:** A toggle interface for OPA policies, allowing you to simulate "Zero-Trust" enforcement and observe the system rejecting unauthorized data changes in real-time. **Not yet implemented** — today the console already surfaces policy allow/deny decisions as they happen; a dedicated toggle UI is future work.
 
 ---
 
 ## 🚀 Getting Started
 
-> **Status:** The Thin Vertical Slice (Phases 1-3), the Phase 4 transport swap, and Phase 5 (OPA policy gate + FHE-encrypted aggregation) are all done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the Extended Architecture steps (Phases 6-7) describe the target end-state and are not yet implemented.
+> **Status:** The Thin Vertical Slice (Phases 1-3), the Phase 4 transport swap, Phase 5 (OPA policy gate + FHE-encrypted aggregation), and the Phase 6 console are all done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the remaining Extended Architecture steps (the Phase 6 Cytoscape graph, Phase 7) describe the target end-state and are not yet implemented.
 
 ### Running it today
 Proves the Observe -> Reason -> Act loop end-to-end over a real message broker, with schema mutations gated by policy and usage metrics protected by FHE. See [Requirements](#-requirements) above for what to install first.
@@ -138,14 +138,16 @@ Proves the Observe -> Reason -> Act loop end-to-end over a real message broker, 
     ```bash
     cargo run --manifest-path orchestrator/Cargo.toml --release -- --config ./config/fabric.yaml --aggregate-user u1
     ```
+6.  **Watch it live in the Control Room console:** `config/fabric.yaml`'s `telemetry` section is on by default, so the orchestrator already starts a WebSocket feed at `127.0.0.1:9001` (comment out that section to run without it — nothing downstream depends on it). Then:
+    ```bash
+    cd ui && npm install && npm run dev
+    ```
+    Open the printed `localhost` URL — every schema breach, policy decision, and repair shows up as a color-coded line the moment it happens, mirroring the orchestrator's own terminal output.
 
 ### Extended Architecture (target state, not yet implemented)
 Everything below is planned but deferred until it's actually needed — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 6-7.
 
-* **Control Room UI (Phase 6):**
-    ```bash
-    cd ui && npm install && npm run dev
-    ```
+* **Control Room topology graph (Phase 6):** Cytoscape.js visualization of the Knowledge Graph and shim nodes — deliberately deferred until the console above had full test coverage end-to-end.
 * **Federation & Hardening (Phase 7):** Add Trino for cross-source query federation; Dagster for asset-aware orchestration; stress testing and latency tuning.
 
 ---

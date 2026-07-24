@@ -17,6 +17,11 @@ pub struct Config {
     // ciphertext, so local dev doesn't require standing up the FHE service.
     #[serde(default)]
     pub privacy_plane: Option<PrivacyPlaneConfig>,
+    // Absent entirely = no telemetry WebSocket server started; the
+    // orchestrator behaves exactly as it did before Phase 6, just without a
+    // Control Room console to watch.
+    #[serde(default)]
+    pub telemetry: Option<TelemetryConfig>,
     #[serde(default)]
     pub logging: LoggingConfig,
 }
@@ -70,6 +75,11 @@ pub struct PolicyPlaneConfig {
 #[derive(Debug, Deserialize)]
 pub struct PrivacyPlaneConfig {
     pub fhe_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TelemetryConfig {
+    pub ws_addr: String,
 }
 
 #[derive(Debug, Deserialize)]
