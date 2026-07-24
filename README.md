@@ -8,6 +8,10 @@ Built specifically for the music streaming domain, this project explores how a d
 
 ---
 
+![ZenFabrique Control Room console showing live telemetry](docs/assets/control-room-preview.png)
+
+---
+
 ## 📋 Requirements
 
 ZenFabrique is being built as a Core MVP vertical slice first, with the Extended Architecture layered in later (see [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md)). Install only what the track you're working on needs.

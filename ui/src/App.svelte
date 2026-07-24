@@ -3,8 +3,8 @@
 </script>
 
 <main>
-  <h1>ZenFabrique — Control Room</h1>
-  <p class="subtitle">Console-first Phase 6: live tail of the orchestrator's Observe -&gt; Reason -&gt; Act loop.</p>
+  <h1>ZenFabrique | Control Room</h1>
+  <p class="subtitle">Live tail of the orchestrator's Observe -&gt; Reason -&gt; Act loop.</p>
   <TerminalConsole />
 </main>
 
