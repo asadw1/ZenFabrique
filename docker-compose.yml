@@ -29,6 +29,12 @@ services:
       - ./policy-plane/rego:/policies:ro
     command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]
 
+  fhe:
+    build: ./privacy-plane/fhe
+    container_name: zenfabrique-fhe
+    ports:
+      - "8090:8090"
+
 volumes:
   jena-data:
   rabbitmq-data:

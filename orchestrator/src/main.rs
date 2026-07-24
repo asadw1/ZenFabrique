@@ -1,5 +1,6 @@
 mod amqp;
 mod config;
+mod fhe;
 mod ingest;
 mod opa;
 mod rdf;
@@ -19,6 +20,11 @@ use tracing_subscriber::EnvFilter;
 struct Args {
     #[arg(long)]
     config: PathBuf,
+    // One-shot mode: print a user's total msPlayed (summed homomorphically
+    // over their FHE-encrypted events, decrypted only for this final
+    // aggregate) instead of running the ingestion loop.
+    #[arg(long)]
+    aggregate_user: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -28,6 +34,23 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(config.logging.level.clone()))
         .init();
+
+    let fhe_client = match &config.privacy_plane {
+        Some(privacy) => fhe::FheClient::remote(&privacy.fhe_url),
+        None => fhe::FheClient::disabled(),
+    };
+
+    if let Some(user_id) = &args.aggregate_user {
+        let shim = shim::ShimEngine::open(&config.data_plane.duckdb_path, rdf::default_aliases())?;
+        let ciphertexts = shim.ciphertexts_for_user(user_id)?;
+        if ciphertexts.is_empty() {
+            tracing::warn!(user_id = %user_id, "no encrypted metrics found for this user");
+            return Ok(());
+        }
+        let total_ms_played = fhe_client.aggregate(&ciphertexts)?;
+        println!("{user_id}: {total_ms_played} ms played (aggregated over {} events, decrypted only for this final total)", ciphertexts.len());
+        return Ok(());
+    }
 
     tracing::info!(backend = ?config.ingestion.backend, "starting ZenFabrique orchestrator");
 
@@ -51,6 +74,11 @@ fn main() -> anyhow::Result<()> {
             opa::OpaClient::disabled()
         }
     };
+
+    match &config.privacy_plane {
+        Some(privacy) => tracing::info!(fhe_url = %privacy.fhe_url, "msPlayed encrypted via FHE service at ingest"),
+        None => tracing::warn!("no privacy_plane configured — msPlayed is not encrypted at rest"),
+    }
 
     // Same `Receiver<RawEvent>` regardless of backend — this is the payoff
     // of keeping ingestion behind one channel: swapping transports touches
@@ -79,7 +107,7 @@ fn main() -> anyhow::Result<()> {
         };
 
     for event in events {
-        if let Err(e) = validate::process(&event, &shacl_client, &opa_client, &mut shim) {
+        if let Err(e) = validate::process(&event, &shacl_client, &opa_client, &fhe_client, &mut shim) {
             tracing::warn!(error = %e, "failed to process event");
         }
     }

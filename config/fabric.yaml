@@ -24,5 +24,13 @@ data_plane:
 policy_plane:
   opa_url: http://localhost:8181
 
+# Phase 5: encrypts msPlayed via FHE at ingest time, so the numeric usage
+# value is never stored in the clear (only in the raw JSON payload, which
+# is the existing audit log — see STATUS.md for the accepted scope note on
+# what this does and doesn't protect). Comment out / remove this whole
+# section for local dev without the FHE service running.
+privacy_plane:
+  fhe_url: http://localhost:8090
+
 logging:
   level: info

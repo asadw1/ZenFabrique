@@ -12,6 +12,11 @@ pub struct Config {
     // self-healing loop work.
     #[serde(default)]
     pub policy_plane: Option<PolicyPlaneConfig>,
+    // Absent entirely = no FHE service deployed; msPlayed is stored only in
+    // the raw JSON payload (as it already is today), not additionally as a
+    // ciphertext, so local dev doesn't require standing up the FHE service.
+    #[serde(default)]
+    pub privacy_plane: Option<PrivacyPlaneConfig>,
     #[serde(default)]
     pub logging: LoggingConfig,
 }
@@ -60,6 +65,11 @@ pub struct DataPlaneConfig {
 #[derive(Debug, Deserialize)]
 pub struct PolicyPlaneConfig {
     pub opa_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrivacyPlaneConfig {
+    pub fhe_url: String,
 }
 
 #[derive(Debug, Deserialize)]

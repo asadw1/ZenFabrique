@@ -1,3 +1,4 @@
+use crate::fhe::FheClient;
 use crate::ingest::RawEvent;
 use crate::opa::OpaClient;
 use crate::rdf;
@@ -12,9 +13,12 @@ use tracing::{info, warn};
 //      actual keys; a unique candidate still needs an OPA policy check
 //      before the shim's alias registry is actually widened (the "repair")
 //   3. re-validate to confirm the repair actually worked
-//   4. always persist the raw event so the shim view can (retroactively)
+//   4. if a usage value (msPlayed) and its owner (userId) both resolved,
+//      encrypt the value via FHE and persist only the ciphertext for that
+//      metric — independent of SHACL conformance, since msPlayed is optional
+//   5. always persist the raw event so the shim view can (retroactively)
 //      reflect it once/if it's healed
-pub fn process(event: &RawEvent, shacl: &ShaclClient, opa: &OpaClient, shim: &mut ShimEngine) -> Result<()> {
+pub fn process(event: &RawEvent, shacl: &ShaclClient, opa: &OpaClient, fhe: &FheClient, shim: &mut ShimEngine) -> Result<()> {
     let started = std::time::Instant::now();
     let source = event.source.clone();
     let origin = event.origin.clone();
@@ -86,6 +90,28 @@ pub fn process(event: &RawEvent, shacl: &ShaclClient, opa: &OpaClient, shim: &mu
     for (field, raw_key) in &extracted.resolved_via {
         if raw_key != field {
             shim.touch_alias(field, raw_key)?;
+        }
+    }
+
+    if let (Some(user_id), Some(ms_played_text)) =
+        (extracted.values.get("userId"), extracted.values.get("msPlayed"))
+    {
+        match ms_played_text.parse::<i64>() {
+            Ok(ms_played) if ms_played >= 0 => match fhe.encrypt(ms_played) {
+                Ok(Some(ciphertext)) => {
+                    let event_id = extracted
+                        .values
+                        .get("eventId")
+                        .cloned()
+                        .unwrap_or_else(|| fallback_id.clone());
+                    if let Err(e) = shim.store_encrypted_metric(&event_id, user_id, &ciphertext) {
+                        warn!(source = %source, error = %e, "failed to persist encrypted metric");
+                    }
+                }
+                Ok(None) => {} // no FHE service configured — nothing to store
+                Err(e) => warn!(source = %source, error = %e, "failed to encrypt msPlayed via FHE service"),
+            },
+            _ => {}
         }
     }
 
@@ -180,6 +206,7 @@ mod tests {
         // with full audit/no-leakage, not about policy gating (see the
         // dedicated policy tests below).
         let opa = OpaClient::disabled();
+        let fhe = FheClient::disabled();
 
         let events = vec![
             raw_event(
@@ -212,7 +239,7 @@ mod tests {
         ];
 
         for event in &events {
-            process(event, &shacl, &opa, &mut shim).expect("process() must not error even with Fuseki unreachable");
+            process(event, &shacl, &opa, &fhe, &mut shim).expect("process() must not error even with Fuseki unreachable");
         }
 
         // Audit completeness: every event landed exactly once, healed or not.
@@ -252,12 +279,13 @@ mod tests {
         let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
         let shacl = dead_shacl_client();
         let opa = OpaClient::remote("http://127.0.0.1:1");
+        let fhe = FheClient::disabled();
 
         let event = raw_event(
             "e1.json",
             json!({"eventId": "e1", "user_id": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00"}),
         );
-        process(&event, &shacl, &opa, &mut shim).unwrap();
+        process(&event, &shacl, &opa, &fhe, &mut shim).unwrap();
 
         let e1 = shim.query_streaming_event("e1").unwrap().unwrap();
         assert_eq!(e1.user_id, None, "fail-closed: an unreachable policy engine must deny, not skip, the check");
@@ -275,13 +303,14 @@ mod tests {
         let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
         let shacl = dead_shacl_client();
         let opa = OpaClient::remote("http://localhost:8181");
+        let fhe = FheClient::disabled();
 
         // untrusted-source: userId is protected, source isn't trusted -> denied
         let denied = raw_event(
             "untrusted-source",
             json!({"eventId": "e-denied", "user_id": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00"}),
         );
-        process(&denied, &shacl, &opa, &mut shim).unwrap();
+        process(&denied, &shacl, &opa, &fhe, &mut shim).unwrap();
         let e_denied = shim.query_streaming_event("e-denied").unwrap().unwrap();
         assert_eq!(e_denied.user_id, None, "protected field mutation from an untrusted source must be denied");
 
@@ -290,7 +319,7 @@ mod tests {
             "partner-feed",
             json!({"eventId": "e-allowed", "user_id": "u2", "trackId": "t2", "timestamp": "2026-01-01T00:01:00"}),
         );
-        process(&allowed, &shacl, &opa, &mut shim).unwrap();
+        process(&allowed, &shacl, &opa, &fhe, &mut shim).unwrap();
         let e_allowed = shim.query_streaming_event("e-allowed").unwrap().unwrap();
         assert_eq!(e_allowed.user_id, Some("u2".to_string()), "protected field mutation from a trusted source must be allowed");
 
@@ -299,9 +328,62 @@ mod tests {
             "untrusted-source",
             json!({"eventId": "e-unprotected", "userId": "u3", "track_id": "t3", "timestamp": "2026-01-01T00:02:00"}),
         );
-        process(&unprotected, &shacl, &opa, &mut shim).unwrap();
+        process(&unprotected, &shacl, &opa, &fhe, &mut shim).unwrap();
         let e_unprotected = shim.query_streaming_event("e-unprotected").unwrap().unwrap();
         assert_eq!(e_unprotected.track_id, Some("t3".to_string()), "unprotected field mutation is allowed for any source");
+
+        drop(shim);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn disabled_fhe_stores_no_encrypted_metrics() {
+        let path = temp_db_path("fhe_disabled");
+        let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
+        let shacl = dead_shacl_client();
+        let opa = OpaClient::disabled();
+        let fhe = FheClient::disabled();
+
+        let event = raw_event(
+            "e1.json",
+            json!({"eventId": "e1", "userId": "u1", "trackId": "t1", "timestamp": "2026-01-01T00:00:00", "msPlayed": 180000}),
+        );
+        process(&event, &shacl, &opa, &fhe, &mut shim).unwrap();
+
+        assert!(shim.ciphertexts_for_user("u1").unwrap().is_empty(), "no FHE service configured — nothing should be encrypted");
+
+        drop(shim);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // Requires `docker compose up -d fhe`.
+    #[test]
+    #[ignore = "requires the live FHE service at localhost:8090"]
+    fn live_fhe_encrypts_ms_played_at_ingest_and_aggregates_correctly() {
+        let path = temp_db_path("fhe_live");
+        let mut shim = ShimEngine::open(&path, rdf::default_aliases()).unwrap();
+        let shacl = dead_shacl_client();
+        let opa = OpaClient::disabled();
+        let fhe = FheClient::remote("http://localhost:8090");
+
+        let events = [
+            ("e1", 180_000i64),
+            ("e2", 210_000i64),
+        ];
+        for (event_id, ms_played) in &events {
+            let event = raw_event(
+                &format!("{event_id}.json"),
+                json!({"eventId": event_id, "userId": "u-live", "trackId": "t1", "timestamp": "2026-01-01T00:00:00", "msPlayed": ms_played}),
+            );
+            process(&event, &shacl, &opa, &fhe, &mut shim).unwrap();
+        }
+
+        let ciphertexts = shim.ciphertexts_for_user("u-live").unwrap();
+        assert_eq!(ciphertexts.len(), 2, "both events' msPlayed should have been encrypted and stored");
+
+        let sum = fhe.aggregate(&ciphertexts).unwrap();
+        let expected: i64 = events.iter().map(|(_, ms)| ms).sum();
+        assert_eq!(sum, expected, "the FHE service's aggregate must match the plaintext sum, without this test ever sending it a raw sum to check against");
 
         drop(shim);
         let _ = std::fs::remove_file(&path);

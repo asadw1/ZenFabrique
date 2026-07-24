@@ -32,9 +32,15 @@ impl ShimEngine {
                 learned_at TIMESTAMP DEFAULT current_timestamp,
                 last_used_at TIMESTAMP DEFAULT current_timestamp,
                 PRIMARY KEY (canonical, raw_key)
+            );
+            CREATE TABLE IF NOT EXISTS encrypted_metrics (
+                event_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                ms_played_ciphertext TEXT NOT NULL,
+                encrypted_at TIMESTAMP DEFAULT current_timestamp
             );",
         )
-        .context("failed to create raw_events/shim_aliases tables")?;
+        .context("failed to create raw_events/shim_aliases/encrypted_metrics tables")?;
 
         let next_id: i64 = conn
             .query_row("SELECT COALESCE(MAX(id), 0) FROM raw_events", [], |r| {
@@ -81,6 +87,32 @@ impl ShimEngine {
 
     pub fn aliases(&self) -> &AliasMap {
         &self.aliases
+    }
+
+    // Stores an FHE-encrypted msPlayed value for one event, keyed by the
+    // user it belongs to — `ciphertexts_for_user` fetches these back for a
+    // homomorphic aggregate query (see fhe.rs). Never stores plaintext.
+    pub fn store_encrypted_metric(&mut self, event_id: &str, user_id: &str, ciphertext: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO encrypted_metrics (event_id, user_id, ms_played_ciphertext) VALUES (?, ?, ?)",
+                params![event_id, user_id, ciphertext],
+            )
+            .context("failed to store encrypted metric")?;
+        Ok(())
+    }
+
+    pub fn ciphertexts_for_user(&self, user_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT ms_played_ciphertext FROM encrypted_metrics WHERE user_id = ? ORDER BY event_id")
+            .context("failed to prepare ciphertexts_for_user query")?;
+        let mut rows = stmt.query(params![user_id])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(row.get(0)?);
+        }
+        Ok(out)
     }
 
     // Widens the alias registry with a newly-discovered renamed field and

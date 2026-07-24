@@ -21,6 +21,8 @@ ZenFabrique is being built as a Core MVP vertical slice first, with the Extended
 | [DuckDB](https://duckdb.org/docs/installation/) | 0.10+ | Executes the generated shim SQL views. CLI is enough for manual inspection; the orchestrator links it via the `duckdb` Rust crate. |
 | [Git](https://git-scm.com/downloads) | 2.x | Version control (this repo). |
 
+OPA and the FHE service (OpenFHE, via its Python bindings) are both live as of Phase 5 — no separate install needed, `docker-compose up -d opa fhe` covers both (the `fhe` service builds its own image from `privacy-plane/fhe/`).
+
 ### Additional requirements for the Extended Architecture (not needed yet)
 
 Only install these once you're actually working on their corresponding roadmap phase — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md).
@@ -28,11 +30,8 @@ Only install these once you're actually working on their corresponding roadmap p
 | Software | Version | Why it's needed |
 | :--- | :--- | :--- |
 | [Node.js](https://nodejs.org/) + npm | 20 LTS+ | Builds and runs the Svelte "Control Room" dashboard. |
-| [Open Policy Agent (OPA)](https://www.openpolicyagent.org/docs/latest/#running-opa) | 0.60+ | Evaluates Rego policies for the Policy Plane. |
-| [RabbitMQ](https://www.rabbitmq.com/docs/download) | 3.13+ (via Docker) | Replaces file-watch ingestion as the real event transport. |
 | [Trino](https://trino.io/download.html) | 440+ | Cross-source query federation. |
 | Python 3.11+ | — | Required by [Dagster](https://docs.dagster.io/getting-started/install) for asset orchestration. |
-| [OpenFHE](https://github.com/openfheorg/openfhe-development) (or [Concrete](https://github.com/zama-ai/concrete) — see license note in [ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md)) | Latest | FHE library for privacy-preserving PII aggregation. |
 
 ---
 
@@ -117,12 +116,12 @@ Unlike standard administrative panels, the **ZenFabrique UI** serves as a diagno
 
 ## 🚀 Getting Started
 
-> **Status:** The Thin Vertical Slice (Phases 1-3) and the Phase 4 transport swap are both done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the Extended Architecture steps (Phases 5-7) describe the target end-state and are not yet implemented.
+> **Status:** The Thin Vertical Slice (Phases 1-3), the Phase 4 transport swap, and Phase 5 (OPA policy gate + FHE-encrypted aggregation) are all done — see [docs/planning/STATUS.md](docs/planning/STATUS.md) for live progress and [docs/architecture/ARCHITECTURE_DECISIONS.md](docs/architecture/ARCHITECTURE_DECISIONS.md) for the Core vs. Extended stack split. The instructions below reflect what's actually running today; the Extended Architecture steps (Phases 6-7) describe the target end-state and are not yet implemented.
 
 ### Running it today
-Proves the Observe -> Reason -> Act loop end-to-end over a real message broker. See [Requirements](#-requirements) above for what to install first.
+Proves the Observe -> Reason -> Act loop end-to-end over a real message broker, with schema mutations gated by policy and usage metrics protected by FHE. See [Requirements](#-requirements) above for what to install first.
 
-1.  **Bring up the Control Plane and the transport:** `docker-compose up -d jena rabbitmq`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset — with SPARQL query/update, Graph Store, and SHACL validation endpoints — automatically on first boot; no manual data loading required (the orchestrator ships its own copy of the SHACL shapes and posts them fresh on every validation call). RabbitMQ's management UI is at `http://localhost:15672` (guest/guest, local dev only).
+1.  **Bring up the Control Plane, transport, policy, and privacy services:** `docker-compose up -d jena rabbitmq opa fhe`. The custom Fuseki assembler config (`config/fuseki/zenfabrique.ttl`) creates the `zenfabrique` dataset automatically on first boot; OPA mounts `policy-plane/rego/` directly (no manual policy load); `fhe` builds its own image from `privacy-plane/fhe/` on first run (a few seconds). RabbitMQ's management UI is at `http://localhost:15672` (guest/guest, local dev only).
 2.  **Seed events:** `config/fabric.yaml` defaults to `ingestion.backend: rabbitmq`, so publish JSON events onto the `zenfabrique.events` queue, e.g. via `rabbitmqadmin` inside the container:
     ```bash
     docker exec zenfabrique-rabbitmq rabbitmqadmin publish message \
@@ -134,13 +133,15 @@ Proves the Observe -> Reason -> Act loop end-to-end over a real message broker. 
     ```bash
     cargo run --manifest-path orchestrator/Cargo.toml --release -- --config ./config/fabric.yaml
     ```
-4.  **Observe repair:** malformed events trigger an automatic DuckDB shim; check the orchestrator logs (each event logs a `duration_ms`) and query the resulting `streaming_events` view in `data-plane/zenfabrique.duckdb` with the `duckdb` CLI.
+4.  **Observe repair:** malformed events trigger an automatic DuckDB shim (schema mutations are checked against `policy-plane/rego/schema_mutation.rego` first); check the orchestrator logs (each event logs a `duration_ms`) and query the resulting `streaming_events` view in `data-plane/zenfabrique.duckdb` with the `duckdb` CLI.
+5.  **Query an encrypted aggregate:** `msPlayed` is encrypted via the `fhe` service at ingest and stored as ciphertext in the `encrypted_metrics` table — never in the clear. Sum a user's listening time without decrypting any individual event:
+    ```bash
+    cargo run --manifest-path orchestrator/Cargo.toml --release -- --config ./config/fabric.yaml --aggregate-user u1
+    ```
 
 ### Extended Architecture (target state, not yet implemented)
-Everything below is planned but deferred until it's actually needed — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 5-7.
+Everything below is planned but deferred until it's actually needed — see [docs/planning/ROADMAP.md](docs/planning/ROADMAP.md) Phases 6-7.
 
-* **Policy Plane (Phase 5):** Deploy OPA with Rego policy bundles for zero-trust schema mutation and access control.
-* **Privacy (Phase 5):** Integrate FHE/SMPC for encrypted PII aggregation.
 * **Control Room UI (Phase 6):**
     ```bash
     cd ui && npm install && npm run dev
